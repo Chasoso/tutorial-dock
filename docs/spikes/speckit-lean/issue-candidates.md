@@ -1,39 +1,34 @@
 # GitHub Issue candidates (simulation only)
 
-実際のIssueは作成していない。下記は修正版Tasksから模擬した候補である。GitHub拡張の現行Skillは、タスクIDをタイトルの `T001: ...` にし、既存IssueをタスクIDで重複確認してから作成する。要求IDを自動生成・自動継承する機能は確認できないため、タスク本文へ参照を残す必要がある。
+実際のIssueは作成していない。以下は、Tutorial Dockの検証結果から導いた運用案であり、正式な開発ルールではない。`tasks.md` は計画時点の成果物、GitHub Issueは実装進捗の正本とする前提で、実装と対応テストを同じIssue・PRへ含める。
 
-## Candidate 1 — State and bounded navigation
+## Candidate 1 — Guide bar basic display implementation and verification
 
-- Task IDs: T001, T002
-- Requirement refs: R-04, R-05
-- Suggested title: `T001: Define guide-bar fixture state and bounded step transitions`
-- Done when: loaded/unloaded state、current index、前/次の境界no-op、派生summaryがテスト可能。
-- Dependency: none
-
-## Candidate 2 — Guide bar rendering
-
-- Task IDs: T003, T004, T005
-- Requirement refs: R-01, R-04, R-09
-- Suggested title: `T003: Render the fixed-height mouse-operated guide bar`
-- Done when: 上部枠なし表示、番号/総数、タイトル/説明、未読み込み、固定heightが確認可能。
-- Dependency: Candidate 1
-
-## Candidate 3 — Component and UI verification
-
-- Task IDs: T006, T007
+- Task IDs: T001–T007
 - Requirement refs: R-01, R-04, R-05, R-09
-- Suggested title: `T006: Verify guide-bar display, navigation, and boundary behavior`
-- Done when: fixture、隣接遷移、先頭/末尾、未読み込み、マウス操作を自動検証。
-- Dependency: Candidate 2
+- Suggested title: `T001: Implement and verify guide-bar basic display`
+- Scope: 固定fixtureと状態、前/次のbounded transition、上部枠なし表示、番号/総数、タイトル/説明、固定高さ、未読み込み表示、マウス操作、境界条件テスト。
+- Done when: 実装と対応するcomponent/UIテストが同じPRに含まれ、loaded/unloaded、中間遷移、先頭/末尾、固定高さ、マウス操作を検証できる。
+- Dependencies: none within this feature; actual source/test paths remain repository-level decisions.
+- Review boundary: one independently implementable, verifiable, and reviewable feature unit.
 
-## Candidate 4 — Scope review
+## PR quality gate — not a separate Issue
 
-- Task IDs: T008
-- Requirement refs: all exclusions
-- Suggested title: `T008: Review guide-bar feature scope against excluded capabilities`
-- Done when: AppBar等の対象外実装が混入していない。
-- Dependency: Candidates 1–3
+- Task: T008
+- Requirement refs: scope exclusions
+- Check: AppBar、作業領域予約、折りたたみ、マルチディスプレイ、画像ビューア、YAMLパーサー、ポータブルexe、グローバルショートカットをこのPRへ混入させない。
+- Handling: 通常のPRレビュー・チェックリスト・CI品質ゲートに含める。独立Issueは作成しない。
 
-## 二重管理とImplement比較
+## 推奨運用案（未承認）
 
-GitHub拡張は `tasks.md` のタスクをIssueへ展開するが、Issue本文と`tasks.md`の完了状態を双方向同期するものではない。既存Codex Issue-to-PR方式ではIssueを作業入口、PRレビューを完了ゲートとする運用が自然である。推奨は、Issueを実行・レビューの正本、`tasks.md`を生成時点の計画スナップショットと定義し、完了更新はPRからIssueへ集約すること。Lean Implementを併用する場合は、タスクチェックとIssue状態の二重更新が発生し得るため、今回の既存フローではImplementを標準化しない。
+- `tasks.md`: Specify/Plan/Tasksで生成される計画スナップショット。実装進捗の正本にはしない。
+- GitHub Issue: 実装・テスト・レビューを束ねる作業単位とし、進捗の正本にする。
+- PR: Issueの完了ゲート。実装と対応テストを同一PRへ含める。
+- 要求ID: Spec Kitの自動継承を前提にせず、Issue本文または対応表でR-01等を手動参照する。
+- T008相当のスコープ確認: Issueへ分離せず、PR品質ゲートとして扱う。
+
+この運用案は今回の単一機能の検証結果に基づく推奨であり、正式採用・適用済みの開発ルールではない。
+
+## GitHub拡張との関係
+
+GitHub拡張は `tasks.md` のT###をIssueタイトルへ使い、既存IssueをタスクIDで重複確認してから作成する。しかし、要求IDの自動継承、実装とテストのIssue統合、`tasks.md`との双方向同期は提供方式から確認できない。そのため、上記の1 Issueへまとめる運用は、標準変換後に人間がレビュー・再編成する推奨案であり、自動変換結果そのものではない。

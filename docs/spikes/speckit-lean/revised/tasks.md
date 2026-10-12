@@ -1,6 +1,14 @@
-# Revised Tasks: Guide Bar Basic Display
+# Revised Tasks comparison record
 
-The initial Lean task output is preserved in `generated/tasks.md`. This revision only makes requirement and success-criteria references explicit so the GitHub Issue bridge and human review can retain traceability without changing scope.
+The initial Lean task output is preserved unchanged in `generated/tasks.md`.
+
+## Actual diff
+
+There is no substantive task diff between `generated/tasks.md` and the prior `revised/tasks.md`. Every T001–T008 task line, including the FR/SC references, was already present in the initial output. The only prior differences were the heading and explanatory paragraph.
+
+## Decision
+
+No revised task list is needed. This file is retained as an audit record so the evaluation does not claim an improvement that was not performed. The Issue candidates are based on the unchanged task set and the recommended Issue/PR operating model, not on a fabricated task revision.
 
 ## Phase 1: Foundation
 
