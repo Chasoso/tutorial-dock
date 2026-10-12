@@ -19,7 +19,7 @@ Tutorial Dockのガイドバー基本表示を題材に、GitHub Spec Kit Lean�
 - Lean preset: `1.0.0`, installed successfully with `specify preset add lean`
 - Codex integration: initialized with `--integration codex --integration-options="--skills"`
 - GitHub extension: `github` `1.0.2`, installed for inspection only
-- Isolated copy: `%TEMP%/tutorial-dock-speckit-20261012-202733/repo` (not part of the repository)
+- Isolated copy: temporary directory outside the repository (not part of the repository)
 
 ## 実行した工程
 
