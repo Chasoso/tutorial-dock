@@ -7,9 +7,17 @@ These rules apply to work in this repository. Detailed policy is in:
 
 ## Required before work
 
-- Read the assigned GitHub Issue, current `main` requirements/specification, relevant Plan and Tasks, Git status/history, and existing verification evidence.
-- Work only on the assigned Work Package. Preserve existing requirement, feature-spec, and task IDs.
+### Specification and planning phase
+
+- A human work instruction plus the current `main` requirements/specification is sufficient to start Specify, Plan, and Tasks. A GitHub Issue is not required.
+- Read the relevant requirements, existing specs/design, Git status/history, and verification evidence. Preserve existing requirement, feature-spec, and task IDs.
 - Treat merged specifications on `main` as effective. Generated or PR-only specifications are proposals.
+
+### Implementation phase
+
+- Start only from a GitHub Issue explicitly named by a human, in the human-specified execution order.
+- Before implementation, read that Issue, its approved/current specification and Plan, dependencies, Git status/history, and existing verification evidence.
+- Issue registration approval is not implementation approval. Do not begin an Issue merely because it was created or registered.
 
 ## Decision levels
 
@@ -20,15 +28,20 @@ These rules apply to work in this repository. Detailed policy is in:
 
 ## Implementation and review
 
+- Codex may generate Work Package/Issue candidates from approved specifications, Plans, and Tasks.
+- Registering GitHub Issues requires human approval of the Work Packages; bulk registration is allowed when that approval covers the set. Registration never authorizes implementation.
 - Group implementation and its corresponding tests in the same Work Package, Issue, and PR by default.
 - Run relevant checks and record `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING` evidence.
-- Request an independent, read-only Codex Subagent review from a separate context. Do not treat Main Agent self-review as an independent PASS.
-- Apply review fixes in the Main Agent, rerun checks, and repeat review/fix for at most three loops. Use `CHANGES_REQUIRED`, `HUMAN_DECISION_REQUIRED`, or `NOT_COMPLETED` when appropriate.
+- An independent review is required before a PR is considered complete or mergeable. Use a read-only Codex Subagent in a context separate from the Main Agent. Do not treat self-review as an independent PASS.
+- Only `PASS` completes the independent review. For `CHANGES_REQUIRED`, the Main Agent fixes, reruns checks, and requests another review, for at most three loops.
+- `HUMAN_DECISION_REQUIRED`, `NOT_COMPLETED`, or an unavailable independent reviewer stops the related work. Do not replace it with a self-review PASS.
+- A Draft PR may be created or updated to preserve/share work while review is incomplete, but Draft status is not review completion or mergeability. Any exception to merging without a PASS is a human decision and must record its reason and substitute verification in the PR.
 
 ## Safety and GitHub boundaries
 
 - Do not change approved behavior without human approval.
-- Do not create or implement an unassigned Issue.
+- Do not register a GitHub Issue without human approval of its Work Package.
+- Do not implement an Issue unless a human specified that Issue and its execution order.
 - Do not use Spec Kit Implement or automatic task-to-Issue creation as standard workflow.
 - Do not push directly to `main` or merge PRs. Human approval is required for merge.
 - Include specification path, IDs, scope, acceptance evidence, independent review result, real-device state, and unresolved items in the PR.

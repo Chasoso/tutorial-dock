@@ -30,18 +30,29 @@ Spec Kit Lean is used for Specify, Plan, and Tasks. Spec Kit Implement and autom
 
 ## Standard operating sequence
 
-1. Read `AGENTS.md`, the target Issue, `docs/requirements.md`, the feature `spec.md`, `plan.md`, `tasks.md`, recent Git history, and relevant test evidence.
-2. Confirm the target feature directory and preserve existing IDs. Use the Spec Kit standard layout `specs/<feature-slug>/spec.md`, `plan.md`, and `tasks.md`; do not duplicate the same feature spec under `docs/specs/`.
-3. Run Lean Specify to create or update the expected behavior and acceptance criteria. Review the result; generation is not approval.
-4. Run Lean Plan to describe technical responsibilities, dependencies, tests, and unresolved decisions. Stop at `HUMAN_DECISION_REQUIRED` for Level 2 or Level 3 decisions.
-5. Run Lean Tasks to produce dependency-ordered tasks. Check that each task is testable and that out-of-scope work is absent.
-6. Group tasks into Work Packages. The default is one independently implementable and reviewable Work Package per Issue and PR. Keep implementation and its corresponding tests together. A multi-Issue PR is allowed only when the dependency and review boundary are explicit.
-7. Before creating an Issue, check duplicate Issues, dependencies, the specification path, requirement IDs, feature-spec IDs, task IDs, the Plan reference, the specification commit SHA, scope, acceptance criteria, and verification method.
-8. Implement only the assigned Issue using the existing Issue-to-PR workflow. Do not run Spec Kit Implement as a substitute for that workflow.
-9. Run the relevant tests and record each acceptance-condition result as `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING`.
-10. Request an independent review from a separate Codex context. The reviewer is read-only by default and returns `PASS`, `CHANGES_REQUIRED`, `HUMAN_DECISION_REQUIRED`, or `NOT_COMPLETED`.
-11. If changes are required, the Main Agent updates the branch, reruns the necessary checks, and requests another independent review. The initial operating limit is three review/fix loops.
-12. Open a PR with the Issue, specification, acceptance evidence, review result, manual verification state, and unresolved items. A human decides whether to merge.
+### Specification and planning phase — Issue not required
+
+1. Start from a human work instruction and the current requirements/specification. A GitHub Issue is not required for this phase.
+2. Read `AGENTS.md`, `docs/requirements.md`, relevant existing specs/design, recent Git history, and verification evidence. Preserve existing IDs.
+3. Confirm the feature directory and use the Spec Kit layout `specs/<feature-slug>/spec.md`, `plan.md`, and `tasks.md`; do not duplicate a feature spec under `docs/specs/`.
+4. Run Lean Specify to create or update expected behavior and acceptance criteria. Review the result; generation is not approval.
+5. Run Lean Plan to describe technical responsibilities, dependencies, tests, and unresolved decisions. Stop at `HUMAN_DECISION_REQUIRED` for Level 2 or Level 3 decisions.
+6. Run Lean Tasks to produce dependency-ordered tasks. Check that each task is testable and that out-of-scope work is absent.
+7. Group tasks into Work Packages and generate Issue candidates. Codex may prepare candidates from approved/current artifacts, but this does not register Issues or authorize implementation.
+
+### Issue registration phase — human Work Package approval required
+
+8. Check duplicate Issues, dependencies, specification path, requirement IDs, feature-spec IDs, task IDs, Plan reference, specification commit SHA, scope, acceptance criteria, and verification method.
+9. A human approves which Work Packages to register. After that approval, the Issues may be registered individually or in bulk. Registration approval is not implementation approval.
+
+### Implementation and review phase — human Issue and order required
+
+10. Start only when a human specifies the target GitHub Issue and execution order. Re-read that Issue, approved/current specification and Plan, dependencies, Git state, and verification evidence.
+11. Implement only the specified Issue using the existing Issue-to-PR workflow. Do not run Spec Kit Implement as a substitute. Do not introduce unapproved specification changes or Level 2/3 decisions.
+12. Run relevant tests and record each acceptance-condition result as `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING`.
+13. Request an independent review from a separate Codex context. The reviewer is read-only by default and returns `PASS`, `CHANGES_REQUIRED`, `HUMAN_DECISION_REQUIRED`, or `NOT_COMPLETED`.
+14. For `CHANGES_REQUIRED`, the Main Agent fixes, reruns checks, and requests another review, at most three loops. `HUMAN_DECISION_REQUIRED`, `NOT_COMPLETED`, or unavailable review stops the related work.
+15. A Draft PR may be opened or updated to preserve/share incomplete work. It is not complete or mergeable until independent review is `PASS`. Any human-approved exception must record its reason and substitute verification in the PR. A human decides whether to merge.
 
 ## Human and Codex responsibilities
 
@@ -61,4 +72,4 @@ Windows AppBar, Electron-to-Win32 integration, work-area reservation/recovery, a
 
 When stopping, report facts, options, impact, and the condition for resuming. On resume, re-read the Issue, current `main` specifications, Plan, Git state, and verification results rather than relying only on chat history.
 
-Never push directly to `main` and never merge a PR without human approval. A PR may be opened as Draft while review evidence is incomplete; it must clearly label `NOT_RUN` and `MANUAL_PENDING` items.
+Never push directly to `main` and never merge a PR without human approval. Draft creation and review completion are separate states; a Draft PR may contain `NOT_RUN`, `MANUAL_PENDING`, or non-`PASS` review status only when that state is explicitly recorded.
