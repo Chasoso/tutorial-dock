@@ -4,6 +4,8 @@
 
 This document defines the proposed standard development flow for Tutorial Dock. It is a repository development rule introduced by this branch; feature specifications and implementation decisions still require the approvals described below.
 
+Git safety, quality gates, push/CI checks, bounded retries, and process cleanup are defined in [git-workflow.md](git-workflow.md) and apply to every phase below.
+
 The standard flow is:
 
 ```text
@@ -52,11 +54,11 @@ Spec Kit Lean is used for Specify, Plan, and Tasks. Spec Kit Implement and autom
 12. Run relevant tests and record each acceptance-condition result as `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING`.
 13. Request an independent review from a separate Codex context. The reviewer is read-only by default and returns `PASS`, `CHANGES_REQUIRED`, `HUMAN_DECISION_REQUIRED`, or `NOT_COMPLETED`.
 14. For `CHANGES_REQUIRED`, the Main Agent fixes, reruns checks, and requests another review, at most three loops. `HUMAN_DECISION_REQUIRED`, `NOT_COMPLETED`, or unavailable review stops the related work.
-15. A Draft PR may be opened or updated to preserve/share incomplete work. It is not complete or mergeable until independent review is `PASS`. Any human-approved exception must record its reason and substitute verification in the PR. A human decides whether to merge.
+15. A Draft PR may be opened or updated to preserve/share incomplete work. It is not complete or mergeable until independent review is `PASS`, required validation has passed, and the latest PR HEAD status is known. Any human-approved exception must record its reason and substitute verification in the PR. A human decides whether to merge.
 
 ## Human and Codex responsibilities
 
-Humans approve product behavior, Level 2/3 technical direction, major Issue regrouping, and PR merges. The Main Agent may perform Level 1 decisions within approved boundaries, implement the assigned Work Package, test, fix, and prepare a PR. A Review Subagent independently checks conformance and quality; it does not implement fixes.
+Humans approve product behavior, Level 2/3 technical direction, major Issue regrouping, and PR merges. The Main Agent may perform Level 1 decisions within approved boundaries, implement the assigned Work Package, test, fix, and prepare a PR. A Review Subagent independently checks conformance and quality; it does not implement fixes. Main Agent self-review is not a substitute for an independent review `PASS`.
 
 ## Technical Spikes
 
@@ -72,4 +74,4 @@ Windows AppBar, Electron-to-Win32 integration, work-area reservation/recovery, a
 
 When stopping, report facts, options, impact, and the condition for resuming. On resume, re-read the Issue, current `main` specifications, Plan, Git state, and verification results rather than relying only on chat history.
 
-Never push directly to `main` and never merge a PR without human approval. Draft creation and review completion are separate states; a Draft PR may contain `NOT_RUN`, `MANUAL_PENDING`, or non-`PASS` review status only when that state is explicitly recorded.
+Never push directly to `main` and never merge a PR without human approval. Draft creation and review completion are separate states; a Draft PR may contain `NOT_RUN`, `MANUAL_PENDING`, `NOT_CONFIGURED`, or non-`PASS` review status only when that state is explicitly recorded. See [git-workflow.md](git-workflow.md) for preflight, self-review, push, CI, retry, stop, and cleanup rules.
