@@ -57,7 +57,7 @@ When the guide bar changes between its normal and collapsed presentation, the re
 
 ### AB-004 — Reservation failure is visible and degraded
 
-If the work-area reservation cannot be established, Tutorial Dock uses the ordinary topmost-window fallback described by R-02 and informs the user that reservation failed. The fallback must not be represented as a successful reservation. The precise message, display duration, and recovery interaction are not specified here.
+If the work-area reservation cannot be established, Tutorial Dock uses the ordinary topmost-window fallback described by R-02 and informs the user that reservation failed. If a later size or display update fails, the user is informed that the requested reservation change did not succeed; the application must not imply that the requested new reservation is active without evidence. This does not decide whether the previous reservation remains, the topmost fallback is used, or a retry is offered. The precise message, display duration, and recovery interaction are not specified here.
 
 ### AB-005 — Selected display changes
 
@@ -115,8 +115,9 @@ If reservation fails and the fallback is used, the user can continue operating o
 
 - **Given:** Windows does not accept initial reservation or a later area update.
 - **When:** the failure is detected.
-- **Then:** an initial reservation failure uses the R-02 topmost fallback and is presented as degraded operation, not as an active reservation.
-**Open behavior:** the user-visible response and recovery after a later size/display update failure are not fully specified.
+- **Then, for an initial registration failure:** use the R-02 topmost fallback and present degraded operation, not an active reservation.
+- **For a later size or display update failure:** show that the requested reservation change failed and do not imply that the requested new reservation is active unless the observed work-area bounds support it.
+- **Open behavior:** the fallback, recovery action, and exact user message after a later update failure are not specified by the current requirements and remain for Spike evidence and human review.
 
 ### US-07 — Abnormal exit, taskbar, DPI, sharing, and full-screen use
 
@@ -134,9 +135,10 @@ These are acceptance targets derived from the current requirements. They are not
 | SC-004 | AB-005 | Switch displays; verify the old display returns to its prior work-area bounds and the selected display receives the new reservation. | Yes | `NOT_RUN` |
 | SC-005 | AB-006 | Disconnect the selected display; verify the bar moves to an available display and no unintended reservation remains on the disconnected display when it becomes available for inspection. | Yes | `NOT_RUN` |
 | SC-006 | AB-007 | Exit normally; verify that the Windows work area returns to its pre-launch bounds. | Yes | `NOT_RUN` |
-| SC-007 | AB-004, AB-008 | In a controlled reservation-failure case, verify that the user can continue using another application, the fallback state is communicated, and the UI does not claim that work-area reservation succeeded. | Yes | `NOT_RUN` |
+| SC-007 | AB-004, AB-008 | In a controlled initial-registration failure case, verify that the user can continue using another application, the fallback state is communicated, and the UI does not claim that work-area reservation succeeded. | Yes | `NOT_RUN` |
+| SC-008 | AB-004, AB-003, AB-005 | Induce or otherwise observe a later size/display update failure. Verify that the failure is visible to the user and the UI does not imply the requested new reservation is active unless observed Windows bounds support it. Record actual bounds. The fallback and recovery behavior remain open for human review. | Yes | `NOT_RUN` |
 
-Abnormal-exit restoration, update-failure recovery, taskbar interactions, mixed-DPI behavior, screen sharing, and full-screen exceptions are required Spike probes, but their precise pass thresholds and guarantees are open. They must not be reported as passed solely because no automated check exists.
+Abnormal-exit restoration, update-failure recovery, taskbar interactions, mixed-DPI behavior, screen sharing, and full-screen exceptions are required Spike probes, but their precise pass thresholds and guarantees are open. SC-008 verifies truthful reporting of an update failure; it does not prescribe the fallback or recovery action. No criterion may be reported as passed without the required Windows evidence.
 
 ## 6. Conceptual states and transitions
 
@@ -148,10 +150,11 @@ These are user-observable feature states, not an internal class or API design.
 | Reserved — expanded | Reservation is active for the normal guide-bar presentation. |
 | Reserved — collapsed | Reservation is active for the collapsed presentation. |
 | Display changing | The target is being changed; the old reservation is expected to be released and the new target applied. Intermediate implementation details are unspecified. |
-| Reservation failed — fallback | AppBar/work-area reservation is not established; the R-02 topmost fallback is used and failure is visible. |
+| Reservation failed — fallback | Initial AppBar/work-area reservation is not established; the R-02 topmost fallback is used and failure is visible. |
+| Reservation update failed | A requested size/display change was not confirmed; the user is informed. Whether the previous reservation remains, fallback is used, or recovery is attempted is open. |
 | Released | The application has exited normally and no reservation remains. |
 
-Expected high-level transitions are `Not reserved → Reserved — expanded/collapsed`, expanded ↔ collapsed, reserved → `Display changing` → reserved on the new display, reservation failure → `Reservation failed — fallback`, and active reservation → `Released` on normal exit. Display disconnect and abnormal process exit may alter these transitions; their recovery behavior requires Spike evidence. A failed later update must not be confused with an active successful reservation; its exact user-facing recovery is open.
+Expected high-level transitions are `Not reserved → Reserved — expanded/collapsed`, expanded ↔ collapsed, reserved → `Display changing` → reserved on the new display, initial reservation failure → `Reservation failed — fallback`, a failed later update → `Reservation update failed`, and active reservation → `Released` on normal exit. Display disconnect and abnormal process exit may alter these transitions; their recovery behavior requires Spike evidence. The state following a failed update must not imply that the requested new reservation succeeded; the exact recovery is open.
 
 ## 7. Open questions and Technical Spike candidates
 
