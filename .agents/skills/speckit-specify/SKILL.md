@@ -17,14 +17,21 @@ $ARGUMENTS
 
 ## Outline
 
-1. **Ask the user** for the feature directory path (e.g., `specs/my-feature`). Do not proceed until provided.
+1. Resolve the feature directory using this precedence:
+   - **Current user instruction:** use an explicitly named path such as `specs/windows-appbar`. Do not ask for a path that the user already supplied.
+   - **Current instruction and repository artifacts:** if no path was supplied, use the current request and existing feature artifacts only when they identify exactly one target.
+   - **Local feature pointer:** treat `.specify/feature.json` only as a candidate. Use it only when its value is valid and corroborates the current request/artifacts; a pointer by itself does not resolve an otherwise ambiguous task. Ignore a stale or conflicting pointer.
+   - If the target remains ambiguous, report the candidate paths and what is unclear, then ask the user. Do not write artifacts or guess.
 
-2. Create the directory and write `.specify/feature.json`:
+2. Before writing, normalize separators and validate that the selected path is a repository-relative `specs/<feature-slug>` path with exactly two path segments and a nonempty slug other than `.` or `..`. Reject absolute/drive/UNC paths, traversal, nested paths, and any resolved path (including through a symlink) outside the repository. Confirm it matches the current instruction, does not select another feature, and that any existing `spec.md` is safe to update. If an existing file would be overwritten without an explicit update request, stop and report it.
+
+3. After the target is resolved and safe, create the directory if needed and write/update the ignored local pointer `.specify/feature.json`:
    ```json
-   { "feature_directory": "<feature_directory>" }
+   { "feature_directory": "specs/<feature-slug>" }
    ```
+   Store the normalized repository-relative path with `/` separators. Keep `feature.json` untracked and do not change `.specify/.gitignore`.
 
-3. Create a specification from the user input and store it in `<feature_directory>/spec.md`.
+4. Create a specification from the user input and store it only in `<feature_directory>/spec.md`.
    - Overview, functional requirements, user scenarios, success criteria
    - Every requirement must be testable
    - Do not turn unspecified or conflicting product behavior into a decision. Record it as an open question or request a human decision.
