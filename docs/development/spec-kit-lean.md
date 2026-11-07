@@ -40,7 +40,9 @@
 
 Lean 1.0.0の公式presetにはImplementとConstitutionのプロンプトも含まれるが、本リポジトリの登録対象はSpecify・Plan・Tasksの3つに限定する。`$speckit-implement`やIssue自動作成Skillは`.agents/skills/`へ含めず、標準工程にも加えない。preset内の公式ファイルはバージョン由来の参照用アセットとして保持する。
 
-`.specify/scripts/powershell/`と`.specify/templates/`はLeanの3 Skillから直接呼び出されないが、Spec Kit CLIの共通基盤manifestが管理対象として要求し、欠けると`specify integration status`がエラーになるため、固定CLI版の生成物を含める。これらの存在は標準テンプレート方式への切替を意味しない。生成される`.specify/memory/constitution.md`は追加しない。プロジェクトの開発ルールは既存の`AGENTS.md`と`docs/development/`を参照し、ルールを重複させない。
+`.specify/scripts/powershell/`と`.specify/templates/`はLeanの3 Skillから呼び出されないが、Spec Kit CLIの共通基盤manifestが管理対象として要求し、欠けると`specify integration status`がエラーになるため、固定CLI版の生成物を含める。Specify・Plan・Tasksの成果物生成は`.agents/skills/`のプロジェクトSkillを入口とし、標準フローでは`.specify/scripts/powershell/`内のスクリプトを直接実行しない。CLIの状態確認やpresetのlist/resolveはこの制限の対象外とする。
+
+同梱スクリプトにはfeature pathの検証とPlan生成前の`spec.md`確認に不足が残っている。スクリプトは改修しておらず、標準フローから除外することは技術的な安全性の保証ではない。将来これらを使用する場合は、別途安全性を検証し、人間の承認を得る。生成される`.specify/memory/constitution.md`は追加せず、プロジェクトの開発ルールは既存の`AGENTS.md`と`docs/development/`を参照する。
 
 ## 新しいPCでのセットアップ
 
