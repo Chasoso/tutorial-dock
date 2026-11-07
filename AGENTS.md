@@ -3,6 +3,7 @@
 These rules apply to work in this repository. Detailed policy is in:
 
 - [SDD workflow](docs/development/workflow.md)
+- [Git workflow and quality gates](docs/development/git-workflow.md)
 - [Specification policy](docs/development/specification-policy.md)
 
 ## Required before work
@@ -12,6 +13,7 @@ These rules apply to work in this repository. Detailed policy is in:
 - A human work instruction plus the current `main` requirements/specification is sufficient to start Specify, Plan, and Tasks. A GitHub Issue is not required.
 - Read the relevant requirements, existing specs/design, Git status/history, and verification evidence. Preserve existing requirement, feature-spec, and task IDs.
 - Treat merged specifications on `main` as effective. Generated or PR-only specifications are proposals.
+- Before editing, follow the Git preflight in `docs/development/git-workflow.md` and protect existing changes, branches, and worktrees.
 
 ### Implementation phase
 
@@ -45,3 +47,7 @@ These rules apply to work in this repository. Detailed policy is in:
 - Do not use Spec Kit Implement or automatic task-to-Issue creation as standard workflow.
 - Do not push directly to `main` or merge PRs. Human approval is required for merge.
 - Include specification path, IDs, scope, acceptance evidence, independent review result, real-device state, and unresolved items in the PR.
+- Do not use `git reset --hard`, unapproved force-push, unconditional stash/rebase, `--no-verify`, or a competing worktree/branch without checking ownership and impact.
+- Run available quality gates before push and confirm the latest pushed SHA and PR CI state after push. A missing check is `NOT_CONFIGURED`, not `PASS`.
+- Do not silently retry authentication, permission, secret-scan, destructive, or specification-conflict failures. Follow the bounded retry and stop/report rules in the Git workflow.
+- Track processes started by Codex and stop only those processes during cleanup; do not terminate another work's process.
