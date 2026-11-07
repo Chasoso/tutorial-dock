@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Windows AppBar Spike</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="renderer.js"></script>
+  </head>
+  <body>
+    <header>
+      <strong>Windows AppBar Core Spike</strong>
+      <span class="warning">Experiment only — Windows work area may change temporarily</span>
+      <button id="close" class="close" type="button">Close safely</button>
+    </header>
+    <main>
+      <p id="status">Measuring the current display. No reservation has been requested.</p>
+      <section class="controls" aria-label="AppBar experiment controls">
+        <button id="measure" type="button">Measure work area</button>
+        <button id="register" type="button">Register 90 px top AppBar</button>
+        <button id="small" type="button" disabled>Change to 34 px</button>
+        <button id="large" type="button" disabled>Restore 90 px</button>
+        <button id="remove" type="button" disabled>Remove and verify</button>
+      </section>
+      <p class="note">Run only on one monitor at 96 DPI. Stop if release does not restore the logged baseline. Do not force-close.</p>
+      <pre id="latest" aria-live="polite">Waiting for the initial measurement…</pre>
+      <details>
+        <summary>Event log</summary>
+        <pre id="log"></pre>
+      </details>
+    </main>
+  </body>
+</html>
