@@ -34,7 +34,7 @@ Select one primary type. If this PR combines types, explain why.
 
 ## Commands and validation
 
-List exact commands, exit status, concise result, skipped checks and reason, retry count, and artifact links when available. Use `PASS`, `FAIL`, `NOT_RUN`, `MANUAL_PENDING`, or `NOT_CONFIGURED`.
+For quality checks, list exact commands, exit status, concise result, skipped checks and reason, retry count, and artifact links when available. Use `PASS`, `FAIL`, `NOT_RUN`, `MANUAL_PENDING`, or `NOT_CONFIGURED` here. `NOT_CONFIGURED` means no applicable check is defined; it is not a pass and cannot replace a configured check that did not run or failed.
 
 | Command or check | Exit/result | Status | Notes or artifact |
 |---|---|---|---|
@@ -46,7 +46,7 @@ For Implementation PRs, list each acceptance condition and its evidence. For Spe
 
 | Acceptance condition | Verification method | Result | Evidence/link |
 |---|---|---|---|
-| | | `PASS / FAIL / NOT_RUN / MANUAL_PENDING / NOT_CONFIGURED` | |
+| | | `PASS / FAIL / NOT_RUN / MANUAL_PENDING` | |
 
 ## CI after push
 
@@ -54,7 +54,10 @@ For Implementation PRs, list each acceptance condition and its evidence. For Spe
 - PR HEAD SHA checked: `________`
 - Required CI checks: `PASS / FAIL / NOT_RUN / NOT_CONFIGURED`
 - CI check names and results:
-- If CI is incomplete, unavailable, or not configured, explain why:
+- If no applicable CI is configured, record `NOT_CONFIGURED` and why. This alone does not block human review if other completion conditions are met.
+- If required CI is configured but did not start, cannot run, or has no result, record `NOT_RUN` and the cause; investigate before reporting completion.
+- If required CI failed, record `FAIL` and the resolution or reason it remains unresolved.
+- Confirm the result applies to the latest PR HEAD SHA above.
 
 ## Independent review
 
@@ -75,7 +78,7 @@ Complete for Technical Spike PRs; otherwise write `N/A - not a Technical Spike`.
 
 ## Real-environment verification
 
-- Windows/device/manual checks: `PASS / FAIL / NOT_RUN / MANUAL_PENDING / NOT_CONFIGURED / N/A - reason`
+- Windows/device/manual checks: `PASS / FAIL / NOT_RUN / MANUAL_PENDING / N/A - reason`
 - Details:
 
 ## Unresolved items and decisions

@@ -26,7 +26,7 @@ Then confirm:
 
 1. The worktree is not dirty, or the existing changes are explicitly understood and protected.
 2. The target branch does not already exist, or its owner and intended reuse are known.
-3. No other worktree currently uses the target branch or files that this Work Package must change.
+3. No other worktree uses the target branch, and the current work will not modify another worktree's files or uncommitted state. Do not operate concurrently on the same work branch. Overlapping paths on different branches are a coordination/conflict risk to assess, not by themselves a reason to stop; check dependencies and work order where relevant.
 4. `origin/main` is the intended base and the repository's current requirements/specifications are understood.
 5. Existing Actions, hooks, scripts, and package commands have been discovered. Do not invent a mandatory command that the repository does not define.
 
@@ -58,6 +58,7 @@ Protect all uncommitted and unpushed commits. Do not use unconditional `rebase`,
 - Use `feat/issue-N`, `fix/issue-N`, or `docs/issue-N` for Issue work when appropriate.
 - Use a purpose-specific branch such as `docs/git-workflow-hardening` for specification/planning or other Issue-before-registration work.
 - Do not change or delete another worktree, branch, process, or uncommitted state.
+- Same-file changes on distinct branches, including changes in another PR, do not alone require stopping. Assess likely conflicts and dependencies; stop if an actual conflict cannot be safely resolved, or if a planned operation would affect another worktree or its uncommitted state and ownership is unclear.
 - Separate worktrees are optional when independent Work Packages run in parallel; forced worktree management is not part of this policy.
 - Before cleanup, verify the process or worktree belongs to the current Work Package and is no longer needed.
 
@@ -74,6 +75,8 @@ Use these statuses consistently:
 - `NOT_CONFIGURED`: no repository check exists yet for that category.
 
 `NOT_CONFIGURED` is not `PASS`. It must not replace a failed or blocked check that is already required by the repository. When the Electron stack is approved, consider adding ESLint, TypeScript typecheck, unit tests, build, Electron UI/E2E, and secret scanning. Until then, do not make any of those commands mandatory or claim they ran.
+
+These five statuses apply to repository quality checks and CI. Acceptance-condition results and Windows/real-environment verification use only `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING`, as defined in [specification-policy.md](specification-policy.md). If automation for an acceptance condition is absent, record that quality-check gap as `NOT_CONFIGURED`; the acceptance condition itself remains `NOT_RUN` or `MANUAL_PENDING` until verified. Missing automation does not make the condition optional or satisfied.
 
 For docs-only work, run available documentation and Git checks. If no Markdown or repository quality tool exists, record that fact as `NOT_CONFIGURED`; `git diff --check` remains a useful basic check. Never use `--no-verify` or remove a gate to make validation pass.
 
@@ -105,11 +108,25 @@ After push or PR creation:
 
 - Confirm the remote branch and PR head SHA equal the intended commit.
 - Inspect GitHub Actions or other repository-defined CI for that exact PR HEAD.
-- Distinguish `PASS`, `FAIL`, `NOT_RUN`, and `NOT_CONFIGURED`; an absent workflow is not a pass.
-- If CI fails in the changed scope, fix it and rerun the affected gates before reporting completion.
-- If CI is pending, unavailable, or not configured, keep that state explicit. Do not report the PR as complete or mergeable without the required evidence.
+- First determine whether the PR type and repository define required CI for this change by checking the relevant workflows and required PR status checks.
+- If no applicable CI is configured, record `NOT_CONFIGURED` and why. This is not a pass, but by itself it does not prevent a Documentation PR from proceeding to human review and merge consideration when all other required local checks, acceptance evidence, and independent review are complete.
+- If required CI is configured but did not start, cannot run, or its result is unavailable, record `NOT_RUN` with the cause. Do not substitute `NOT_CONFIGURED`; investigate and resolve it. Until resolved, do not report the PR as complete. If it cannot be resolved, stop and report.
+- If required CI fails, record `FAIL`. Fix and rerun failures caused by the changed scope. For an unexplained or out-of-scope failure, stop and report; never disable or weaken the check to obtain a pass.
+- Treat CI as `PASS` only when the required checks passed for the latest PR HEAD. Keep any pending state explicit.
+- An exception to completing or merging with required CI not passing remains a human decision; record the reason and substitute verification in the PR.
 - Re-run independent review after code or behavior changes. A stale review does not approve a new HEAD.
 - A Draft PR may preserve/share valid work with incomplete checks, but it must not use `Closes #N` for incomplete, failed, or pending Issues.
+
+A PR may be considered ready for human review and merge consideration only when all of the following are true:
+
+1. Required local validation is complete and has no unresolved failure.
+2. Independent review is `PASS` for the current change.
+3. If applicable CI is configured, its required results are `PASS` for the latest PR HEAD.
+4. If no applicable CI is configured, that fact and reason are recorded as `NOT_CONFIGURED`.
+5. Acceptance-condition and Windows/real-environment results use the four statuses in `specification-policy.md`; no required condition remains unverified while the PR is described as complete.
+6. A human makes the final merge decision.
+
+Draft PRs may still be created or updated to preserve work before these conditions are met; Draft status does not mean review completion or merge readiness.
 
 ## Retry and stop policy
 

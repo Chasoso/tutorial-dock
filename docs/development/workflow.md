@@ -51,10 +51,10 @@ Spec Kit Lean is used for Specify, Plan, and Tasks. Spec Kit Implement and autom
 
 10. Start only when a human specifies the target GitHub Issue and execution order. Re-read that Issue, approved/current specification and Plan, dependencies, Git state, and verification evidence.
 11. Implement only the specified Issue using the existing Issue-to-PR workflow. Do not run Spec Kit Implement as a substitute. Do not introduce unapproved specification changes or Level 2/3 decisions.
-12. Run relevant tests and record each acceptance-condition result as `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING`.
+12. Run relevant tests and record each acceptance-condition result as `PASS`, `FAIL`, `NOT_RUN`, or `MANUAL_PENDING`. These four statuses also apply to Windows/real-environment verification; quality-check and CI configuration state is recorded separately using the statuses in [git-workflow.md](git-workflow.md).
 13. Request an independent review from a separate Codex context. The reviewer is read-only by default and returns `PASS`, `CHANGES_REQUIRED`, `HUMAN_DECISION_REQUIRED`, or `NOT_COMPLETED`.
 14. For `CHANGES_REQUIRED`, the Main Agent fixes, reruns checks, and requests another review, at most three loops. `HUMAN_DECISION_REQUIRED`, `NOT_COMPLETED`, or unavailable review stops the related work.
-15. A Draft PR may be opened or updated to preserve/share incomplete work. It is not complete or mergeable until independent review is `PASS`, required validation has passed, and the latest PR HEAD status is known. Any human-approved exception must record its reason and substitute verification in the PR. A human decides whether to merge.
+15. A Draft PR may be opened or updated to preserve/share incomplete work. It is ready for human review and merge consideration only after required local validation is complete, independent review is `PASS`, required CI is `PASS` for the latest PR HEAD (or confirmed absent and recorded `NOT_CONFIGURED`), and acceptance/real-environment evidence is complete for all required conditions. A configured but unstarted or unavailable required CI remains unresolved, not `NOT_CONFIGURED`. Any human-approved exception must record its reason and substitute verification in the PR. A human decides whether to merge.
 
 ## Human and Codex responsibilities
 
@@ -74,4 +74,4 @@ Windows AppBar, Electron-to-Win32 integration, work-area reservation/recovery, a
 
 When stopping, report facts, options, impact, and the condition for resuming. On resume, re-read the Issue, current `main` specifications, Plan, Git state, and verification results rather than relying only on chat history.
 
-Never push directly to `main` and never merge a PR without human approval. Draft creation and review completion are separate states; a Draft PR may contain `NOT_RUN`, `MANUAL_PENDING`, `NOT_CONFIGURED`, or non-`PASS` review status only when that state is explicitly recorded. See [git-workflow.md](git-workflow.md) for preflight, self-review, push, CI, retry, stop, and cleanup rules.
+Never push directly to `main` and never merge a PR without human approval. Draft creation and review completion are separate states; a Draft PR may contain pending acceptance evidence, `NOT_CONFIGURED` quality checks/CI, or a non-`PASS` review status only when that state is explicitly recorded. See [git-workflow.md](git-workflow.md) for preflight, self-review, push, CI, retry, stop, and cleanup rules.
