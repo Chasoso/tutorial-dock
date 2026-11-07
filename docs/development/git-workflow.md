@@ -12,19 +12,24 @@ This document hardens Git and validation operations around the existing SDD flow
 
 ## New-work preflight
 
-Before editing a new Work Package, run the equivalent read-only checks:
+Before creating a new branch or resuming existing work, inspect the local Git state:
 
 ```powershell
 git status --short --branch
 git worktree list --porcelain
 git branch -vv
+```
+
+Then fetch the current remote base as a separate required operation. Fetch updates local remote-tracking references and `FETCH_HEAD`; it does not modify working files:
+
+```powershell
 git fetch origin main
 git log --oneline --decorate -5 origin/main
 ```
 
 Then confirm:
 
-1. The worktree is not dirty, or the existing changes are explicitly understood and protected.
+1. For new work, create a branch only from a clean worktree. To resume an existing branch with uncommitted changes, confirm the worktree/branch owner, inspect the exact changes, verify they belong to the requested work, and confirm that continuing them is covered by current human authorization. If any of these are unclear, stop and report.
 2. The target branch does not already exist, or its owner and intended reuse are known.
 3. No other worktree uses the target branch, and the current work will not modify another worktree's files or uncommitted state. Do not operate concurrently on the same work branch. Overlapping paths on different branches are a coordination/conflict risk to assess, not by themselves a reason to stop; check dependencies and work order where relevant.
 4. `origin/main` is the intended base and the repository's current requirements/specifications are understood.
@@ -36,16 +41,21 @@ For a new branch, create it from the fetched remote base only after the checks p
 git switch -c <branch-name> origin/main
 ```
 
-If the worktree is dirty, the branch exists ambiguously, or ownership is unclear, stop and report. Do not reset, stash, overwrite, delete, or silently switch worktrees to make the preflight pass.
+For new work, do not create a branch or begin in a dirty worktree; preserve its changes and report the conflict. For an existing-work resume, use the criteria above. If branch ownership or state is unclear, stop and report. Never discard, stash, or reset unapproved changes, and do not overwrite, delete, or silently switch worktrees to make the preflight pass.
 
 ## Resuming existing work
 
-Before resuming an existing branch:
+Before resuming an existing branch, inspect its local state:
 
 ```powershell
 git status --short --branch
 git worktree list --porcelain
 git log --oneline --decorate -10
+```
+
+Then update the remote base reference and compare the branch:
+
+```powershell
 git fetch origin main
 git diff --stat origin/main...HEAD
 git diff --name-status origin/main...HEAD
@@ -167,4 +177,3 @@ Do not mark a failed or unavailable check as `PASS`, and do not treat a self-rev
 ## Reference choices
 
 Other personal repositories were consulted for safety patterns such as latest-base fetches, no-hook-bypass rules, focused branches, validation evidence, bounded retries, and fail-closed review/CI reporting. This repository intentionally does not adopt their `develop` base, mandatory worktree manager, review epochs, AWS/MCP constraints, or broad automation. Tutorial Dock keeps the existing four SDD contracts, human approval boundaries, and lightweight Issue-to-PR flow.
-
