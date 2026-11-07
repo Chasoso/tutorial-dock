@@ -12,7 +12,7 @@ The standard flow is:
 Requirements → Specify → Plan → Tasks → Work Packages → GitHub Issues → Codex Implementation → Independent Review → PR → Human Review
 ```
 
-Spec Kit Lean is used for Specify, Plan, and Tasks. Spec Kit Implement and automatic task-to-Issue creation through the GitHub extension are not standard operations at this time.
+Spec Kit Lean is used for Specify, Plan, and Tasks. Spec Kit Implement and automatic task-to-Issue creation through the GitHub extension are not standard operations at this time. See [Spec Kit Lean setup and version policy](spec-kit-lean.md) for the pinned tools, tracked Codex Skills, and setup steps.
 
 ## Artifacts and authorities
 
