@@ -94,11 +94,23 @@ function sameRect(a, b) {
 
 function record(event, details = {}) {
   const entry = { at: new Date().toISOString(), event, ...details };
-  if (logFile) fs.appendFileSync(logFile, `${JSON.stringify(entry)}\n`, 'utf8');
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('spike:log', entry);
+  try {
+    if (logFile) fs.appendFileSync(logFile, `${JSON.stringify(entry)}\n`, 'utf8');
+  } catch (error) {
+    entry.logFileError = error.message;
   }
-  console.log(JSON.stringify(entry));
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('spike:log', entry);
+    }
+  } catch (error) {
+    entry.uiLogError = error.message;
+  }
+  try {
+    console.log(JSON.stringify(entry));
+  } catch {
+    // Logging must not interrupt AppBar state cleanup.
+  }
   return entry;
 }
 
@@ -249,16 +261,19 @@ async function registerAppBar() {
 
   const registration = appBarData();
   const result = SHAppBarMessage(APPBAR.NEW, registration);
-  record('ABM_NEW', { returnValue: String(result), callbackMessage });
   if (result === 0n || result === 0) {
+    record('ABM_NEW', { returnValue: String(result), callbackMessage });
     return { ok: false, message: 'ABM_NEW returned FALSE; no reservation test was started' };
   }
 
+  // Set cleanup state immediately after the OS accepted registration. Logging or UI
+  // failures must never leave a successful registration outside the close guard.
   appBarRegistered = true;
   releaseUnconfirmed = false;
   releaseConfirmed = false;
-  mainWindow.setAlwaysOnTop(true);
+  record('ABM_NEW', { returnValue: String(result), callbackMessage });
   try {
+    mainWindow.setAlwaysOnTop(true);
     const reservation = setReservationHeight(90);
     return { ok: true, reservation };
   } catch (error) {
@@ -280,8 +295,8 @@ async function removeAppBar() {
     record('ABM_REMOVE-error', { message: error.message });
     return { ok: false, message: error.message };
   }
-  record('ABM_REMOVE', { returnValue: String(removeResult) });
   if (removeResult === 0n || removeResult === 0) {
+    record('ABM_REMOVE', { returnValue: String(removeResult) });
     releaseUnconfirmed = true;
     return { ok: false, message: 'ABM_REMOVE returned FALSE; keep this window open and stop testing.' };
   }
@@ -289,6 +304,7 @@ async function removeAppBar() {
   appBarRegistered = false;
   releaseUnconfirmed = true;
   releaseConfirmed = false;
+  record('ABM_REMOVE', { returnValue: String(removeResult) });
   await new Promise((resolve) => setTimeout(resolve, 350));
   let after;
   try {

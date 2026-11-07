@@ -51,6 +51,8 @@ Before registration, the PoC measures the monitor bounds, `rcWork`, monitor coun
 
 Normal exit is guarded: closing the PoC while registered first sends `ABM_REMOVE`, then checks that `rcWork` exactly matches the pre-registration baseline. If the API call fails or the work area does not return to baseline, the PoC remains open and reports the unconfirmed state; do not run more tests or force-terminate it. Stop and report the observed state for human handling. No Explorer restart, administrator action, registry edit, or process termination is part of recovery. Crash/forced-termination testing is explicitly excluded.
 
+The PoC updates its in-memory registration state immediately after successful `ABM_NEW`/`ABM_REMOVE` results so logging failures cannot bypass cleanup state. File/UI logging errors are reported when possible and do not interrupt the release path.
+
 The procedure is: measure baseline → register at 90 px → change to 34 px → restore to 90 px → remove and verify exact baseline → close normally. The dimensions are temporary experiment values only, not product decisions.
 
 ## Reproduction

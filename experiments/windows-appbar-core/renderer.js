@@ -42,6 +42,7 @@ registerButton.addEventListener('click', async () => {
     }
   } catch (error) {
     status.textContent = `Registration failed: ${error.message}. If ABM_NEW succeeded, use Remove and verify.`;
+    removeButton.disabled = false;
   } finally {
     registerButton.disabled = true;
   }
