@@ -19,7 +19,7 @@ Record actual values; do not change the machine to match the baseline.
 | Item | Observed before experiment |
 |---|---|
 | Git base | `origin/main` = `84b572cd3e8d3a7c5524950c2d52aa319162d37b` (includes merged PR #6) |
-| OS registry product/version/build | Windows 10 Pro, 26H2, build `26300.9818` (not the requested Windows 11 baseline) |
+| OS version/build | Windows 11 Pro, 26H2, build `26300.9818`; registry `ProductName` reports `Windows 10 Pro`, while `DisplayVersion=26H2`, `CurrentBuild=26300`, and `EditionID=Professional`. Microsoft identifies build 26300 as Windows 11 26H2 ([supported versions](https://learn.microsoft.com/en-us/windows/release-health/supported-versions-windows-client)). |
 | Architecture | x64 |
 | Node.js / npm | `v24.12.0` / `11.13.0` |
 | Python | `3.13.7` |
@@ -31,7 +31,7 @@ Record actual values; do not change the machine to match the baseline.
 | Other Electron, Node, Tableau, or Notepad processes | None found at preflight |
 | Primary monitor DPI | 96 × 96 (100%), read with `GetDpiForMonitor` |
 
-Because the OS is not identified as Windows 11, any result is exploratory evidence for this recorded environment. Windows 11 baseline acceptance remains unverified. The Spike must not change OS, display, DPI, taskbar, or security settings.
+The local registry's legacy `ProductName` string conflicts with its `DisplayVersion` and build. The build/version mapping is recorded as Windows 11 26H2 based on Microsoft's release information; the raw registry values are retained above for reproducibility. The machine matches the requested OS family and single-monitor/100%-scale baseline, though the AppBar behavior itself remains unverified. The Spike must not change OS, display, DPI, taskbar, or security settings.
 
 ## Compared integration options
 
