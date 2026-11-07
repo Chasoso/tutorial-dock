@@ -1,0 +1,10 @@
+{
+  "integration": "codex",
+  "version": "1.1.3",
+  "installed_at": "2026-11-07T06:43:56.238202+00:00",
+  "files": {
+    ".agents/skills/speckit-plan/SKILL.md": "7c89f38084a1d861b493ff93c0c5616fbd44d1862e2882fb3edc70b120c1762a",
+    ".agents/skills/speckit-specify/SKILL.md": "6b696876b3e15a552407ba60ad686561b4010a09a349dcbf5c049ef6206b8dee",
+    ".agents/skills/speckit-tasks/SKILL.md": "f90ef7aa2a9ce9a73018dc87c1106cd9b054b2c57704185e12dec1a8264c6048"
+  }
+}
