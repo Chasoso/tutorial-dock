@@ -236,3 +236,7 @@ After the attempt, a separate read-only `GetMonitorInfo` query reported monitor 
 Classification: **4. Environment constraints prevented isolation.** The available execution did not expose a window, a child exit code, stderr, or crash information. This is insufficient evidence to conclude that Electron's basic startup fails, and Test B cannot be meaningfully run. The previous `EXCEPTION_BREAKPOINT` remains an unresolved observation rather than a confirmed cause.
 
 Do not continue launching Electron in this environment as part of this bounded investigation. Resume in an interactive Windows environment where the operator can verify the window and capture the actual child exit/output or an accessible crash record. First repeat only Test A using the existing verified binary; run Test B only after A visibly succeeds and closes normally. Keep all AppBar runtime criteria `NOT_RUN` until a later, separately authorized experiment.
+
+## Manual diagnostic package
+
+To run the bounded startup separation from a normal Windows 11 desktop session, use the [manual Electron startup diagnostic](manual-electron-startup.md). It provides separate Test A (Electron only) and conditional Test B (Koffi plus read-only monitor information) commands. The diagnostic source lives under `experiments/windows-appbar-core/startup-diagnostic/`, uses the existing pinned dependencies without installing or downloading, and contains no AppBar operation. **Manual execution remains pending**; this addition does not change any AppBar acceptance result from `NOT_RUN`.
