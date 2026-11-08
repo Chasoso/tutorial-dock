@@ -298,3 +298,7 @@ Chromium displayed an access-denied warning while creating its disk cache. The U
 ### Manual AppBar validation handoff
 
 The separate [manual AppBar validation procedure](manual-appbar-validation.md) defines the human-run sequence, starting with an unregistered startup and safe exit. It requires each phase to pass before proceeding to registration, resizing, or maximized-window checks, and specifies stop conditions for an unconfirmed release. All AppBar runtime acceptance criteria remain `NOT_RUN` until the human performs and records those steps.
+
+### Manual procedure clarification (2026-11-08)
+
+The manual procedure now resolves the repository root with `git rev-parse --show-toplevel` and derives the experiment directory as an absolute path. Each phase started in a new terminal reruns the same bootstrap; no repeated relative `Set-Location` is needed. Phase 2 is split into 2A (explicit `Remove and verify`) and 2B (Safe exit while registered), with 2B allowed only after 2A passes. Phase 2B records the automatic `ABM_REMOVE`, release verification, PowerShell exit code, and post-exit work-area measurement separately. This documentation update did not run Electron or AppBar APIs; Windows AppBar registration, reservation, and release remain unverified and `NOT_RUN`.
