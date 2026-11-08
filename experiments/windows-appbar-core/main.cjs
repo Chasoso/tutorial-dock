@@ -3,6 +3,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron');
 const koffi = require('koffi');
+const { createBoundedDiagnosticQueue } = require('./deferred-diagnostic-queue.cjs');
 
 const APPBAR = Object.freeze({
   NEW: 0x00000000,
@@ -21,6 +22,9 @@ const WM_WINDOWPOSCHANGED = 0x0047;
 const SM_CMONITORS = 80;
 const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 const SHOW_SETTLED_DIAGNOSTIC_DELAY_MS = 250;
+const DEFERRED_DIAGNOSTIC_MIN_INTERVAL_MS = 100;
+const DEFERRED_DIAGNOSTIC_QUEUE_LIMIT = 8;
+const DEFERRED_DIAGNOSTIC_BATCH_SIZE = 2;
 
 const STATE = Object.freeze({
   UNREGISTERED: 'unregistered',
@@ -106,6 +110,16 @@ let logFile;
 let logFileFailure = null;
 let dwmGetWindowAttribute;
 let dwmBindingFailure = null;
+const deferredPositionDiagnostics = createBoundedDiagnosticQueue(DEFERRED_DIAGNOSTIC_QUEUE_LIMIT);
+let deferredDiagnosticImmediate = null;
+let deferredDiagnosticTimer = null;
+let showSettledDiagnosticTimer = null;
+let lastDeferredDiagnosticBatchAt = 0;
+let diagnosticEventSequence = 0;
+let diagnosticCallbackFailureCount = 0;
+let diagnosticEventsSuppressedAfterStop = 0;
+let deferredDiagnosticsStopped = false;
+let stoppedDiagnosticSummary = null;
 
 function pointerFromWindowHandle(buffer) {
   if (!Buffer.isBuffer(buffer)) throw new TypeError('Expected Electron HWND Buffer');
@@ -324,11 +338,28 @@ function diagnosticWindowMeasurements(window, hwnd, role) {
   };
 }
 
-function positionDiagnosticSnapshot(label, details = {}) {
+function positionDiagnosticSnapshot(label, details = {}, capture = {}) {
   try {
     const monitor = diagnosticRead(() => monitorInfo());
+    const measurements = {
+      monitorAndWorkArea: monitor.status === 'ok'
+        ? {
+            status: 'ok',
+            apiResults: { MonitorFromWindow: 'handle-returned', GetMonitorInfoW: true },
+            monitor: monitor.value.monitor,
+            workArea: monitor.value.workArea,
+            primary: monitor.value.primary,
+          }
+        : monitor,
+      appBarWindow: diagnosticWindowMeasurements(appBarWindow, appBarHandle, 'appbar-window'),
+      operatorWindow: diagnosticWindowMeasurements(operatorWindow, operatorHandle, 'operator-window'),
+    };
+    const measurementCapturedAt = new Date().toISOString();
     record('position-diagnostic', {
       label,
+      ...capture,
+      captureMode: capture.captureMode ?? 'synchronous',
+      measurementCapturedAt,
       appBarState,
       registrationState: appBarState,
       currentHeight,
@@ -342,35 +373,242 @@ function positionDiagnosticSnapshot(label, details = {}) {
         dwmExtendedFrameBounds: 'DWM screen-space extended frame RECT; Microsoft documents that it is not DPI-adjusted.',
         comparison: 'Keep each API result separate. Differences are measurements, not a diagnosis until coordinate spaces and frame definitions are accounted for.',
       },
-      measurements: {
-        monitorAndWorkArea: monitor.status === 'ok'
-          ? {
-              status: 'ok',
-              apiResults: { MonitorFromWindow: 'handle-returned', GetMonitorInfoW: true },
-              monitor: monitor.value.monitor,
-              workArea: monitor.value.workArea,
-              primary: monitor.value.primary,
-            }
-          : monitor,
-        appBarWindow: diagnosticWindowMeasurements(appBarWindow, appBarHandle, 'appbar-window'),
-        operatorWindow: diagnosticWindowMeasurements(operatorWindow, operatorHandle, 'operator-window'),
-      },
+      measurements,
     });
   } catch (error) {
     record('position-diagnostic-capture-error', {
       label,
+      ...capture,
+      captureMode: capture.captureMode ?? 'synchronous',
+      captureFailedAt: new Date().toISOString(),
       reason: diagnosticErrorText(error),
       note: 'Diagnostic capture failed; AppBar operation flow continues without this sample.',
     });
   }
 }
 
+function copyMessageParameter(value) {
+  if (Buffer.isBuffer(value)) return Buffer.from(value.subarray(0, 16));
+  if (typeof value === 'string') return value.slice(0, 128);
+  if (value === null || ['number', 'bigint', 'boolean'].includes(typeof value)) return value;
+  return null;
+}
+
+function formatMessageParameter(value) {
+  if (Buffer.isBuffer(value)) return value.toString('hex');
+  return value === null ? null : String(value);
+}
+
+function scheduleDeferredDiagnosticFlush(delayMs = 0) {
+  if (deferredDiagnosticsStopped || shutdownRequested || deferredDiagnosticImmediate || deferredDiagnosticTimer) return;
+  const flush = () => {
+    deferredDiagnosticImmediate = null;
+    deferredDiagnosticTimer = null;
+    flushDeferredPositionDiagnostics();
+  };
+  if (delayMs > 0) {
+    deferredDiagnosticTimer = setTimeout(flush, delayMs);
+  } else {
+    deferredDiagnosticImmediate = setImmediate(flush);
+  }
+}
+
+function suppressDiagnosticEventIfStopped() {
+  if (!deferredDiagnosticsStopped && !shutdownRequested) return false;
+  diagnosticEventsSuppressedAfterStop = Math.min(
+    diagnosticEventsSuppressedAfterStop + 1,
+    Number.MAX_SAFE_INTEGER,
+  );
+  return true;
+}
+
+function enqueueDeferredPositionDiagnostic(label, event) {
+  try {
+    if (suppressDiagnosticEventIfStopped()) return;
+    deferredPositionDiagnostics.enqueue(label, event);
+    scheduleDeferredDiagnosticFlush();
+  } catch {
+    // Native callbacks must not log, measure, or let a diagnostic failure escape.
+    diagnosticCallbackFailureCount = Math.min(diagnosticCallbackFailureCount + 1, Number.MAX_SAFE_INTEGER);
+  }
+}
+
+function deferredCaptureMetadata(entry) {
+  const first = entry.first;
+  const last = entry.last;
+  const win32 = last.kind === 'win32-message';
+  return {
+    captureMode: 'deferred',
+    eventObservedAt: last.observedAt,
+    ...(win32 ? { messageObservedAt: last.observedAt } : {}),
+    firstObservedAt: first.observedAt,
+    lastObservedAt: last.observedAt,
+    firstEventSequence: first.sequence,
+    lastEventSequence: last.sequence,
+    firstAppBarStateAtEvent: first.appBarStateAtEvent,
+    lastAppBarStateAtEvent: last.appBarStateAtEvent,
+    coalescedCount: entry.coalescedCount,
+  };
+}
+
+function emitDeferredPositionDiagnostic(entry) {
+  const { last } = entry;
+  const capture = deferredCaptureMetadata(entry);
+  if (last.kind === 'win32-message') {
+    const payload = last.payload;
+    const common = {
+      hwndRole: 'appbar-window',
+      message: payload.message,
+      wParam: formatMessageParameter(payload.wParam),
+      lParam: formatMessageParameter(payload.lParam),
+      ...capture,
+    };
+    if (payload.message === callbackMessage) {
+      record('appbar-callback-observed', {
+        ...common,
+        notification: payload.notification,
+        notificationName: payload.notification === ABN_POSCHANGED ? 'ABN_POSCHANGED' : 'other',
+        handling: 'logged-only plus deferred read-only position measurement; no ABM_QUERY/SETPOS or relocation is implemented',
+      });
+      positionDiagnosticSnapshot('win32-message:appbar-callback', {
+        message: payload.message,
+        notification: payload.notification,
+        notificationName: payload.notification === ABN_POSCHANGED ? 'ABN_POSCHANGED' : 'other',
+        action: 'deferred read-only measurement only',
+      }, capture);
+      return;
+    }
+    record('wm-windowposchanged-observed', {
+      ...common,
+      handling: 'logged-only plus deferred read-only position measurement; ABM_WINDOWPOSCHANGED is not sent',
+    });
+    positionDiagnosticSnapshot('win32-message:WM_WINDOWPOSCHANGED', {
+      message: payload.message,
+      action: 'deferred read-only measurement only',
+    }, capture);
+    return;
+  }
+
+  positionDiagnosticSnapshot(`electron-event:${last.eventName}`, {
+    source: 'BrowserWindow event',
+    eventName: last.eventName,
+    ...capture,
+  }, capture);
+}
+
+function deferredDiagnosticCaptureAllowed() {
+  if (deferredDiagnosticsStopped || shutdownRequested ||
+      [STATE.REMOVING, STATE.RELEASED].includes(appBarState)) return false;
+  try {
+    return Boolean(appBarWindow && !appBarWindow.isDestroyed());
+  } catch {
+    return false;
+  }
+}
+
+function flushDeferredPositionDiagnostics() {
+  if (!deferredDiagnosticCaptureAllowed()) {
+    const discarded = deferredPositionDiagnostics.clear();
+    if (discarded.queuedCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop) {
+      record('position-diagnostic-queue-discarded', {
+        reason: 'capture-unavailable-or-lifecycle-ending',
+        queuedLabelCount: discarded.queuedLabelCount,
+        queuedEventCount: discarded.queuedEventCount,
+        overflowDroppedCount: discarded.droppedCount,
+        suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
+      });
+      diagnosticEventsSuppressedAfterStop = 0;
+    }
+    return;
+  }
+
+  const elapsed = Date.now() - lastDeferredDiagnosticBatchAt;
+  if (elapsed < DEFERRED_DIAGNOSTIC_MIN_INTERVAL_MS) {
+    scheduleDeferredDiagnosticFlush(DEFERRED_DIAGNOSTIC_MIN_INTERVAL_MS - elapsed);
+    return;
+  }
+
+  const batch = deferredPositionDiagnostics.take(DEFERRED_DIAGNOSTIC_BATCH_SIZE);
+  if (batch.droppedCount) {
+    record('position-diagnostic-queue-overflow', {
+      droppedEventCount: batch.droppedCount,
+      queueLimit: DEFERRED_DIAGNOSTIC_QUEUE_LIMIT,
+    });
+  }
+  if (diagnosticCallbackFailureCount) {
+    record('position-diagnostic-enqueue-error', { failureCount: diagnosticCallbackFailureCount });
+    diagnosticCallbackFailureCount = 0;
+  }
+
+  if (batch.entries.length) lastDeferredDiagnosticBatchAt = Date.now();
+  for (const entry of batch.entries) {
+    if (!deferredDiagnosticCaptureAllowed()) break;
+    try {
+      emitDeferredPositionDiagnostic(entry);
+    } catch (error) {
+      record('position-diagnostic-deferred-error', {
+        label: entry.key,
+        reason: diagnosticErrorText(error),
+        ...deferredCaptureMetadata(entry),
+        note: 'Deferred diagnostic failed; AppBar operation and release flow remain in control.',
+      });
+    }
+  }
+  if (deferredPositionDiagnostics.size) scheduleDeferredDiagnosticFlush(DEFERRED_DIAGNOSTIC_MIN_INTERVAL_MS);
+}
+
+function stopDeferredPositionDiagnostics(reason) {
+  if (deferredDiagnosticsStopped) return;
+  deferredDiagnosticsStopped = true;
+  if (deferredDiagnosticImmediate) clearImmediate(deferredDiagnosticImmediate);
+  if (deferredDiagnosticTimer) clearTimeout(deferredDiagnosticTimer);
+  if (showSettledDiagnosticTimer) clearTimeout(showSettledDiagnosticTimer);
+  deferredDiagnosticImmediate = null;
+  deferredDiagnosticTimer = null;
+  showSettledDiagnosticTimer = null;
+  const discarded = deferredPositionDiagnostics.clear();
+  if (discarded.queuedLabelCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop || diagnosticCallbackFailureCount) {
+    stoppedDiagnosticSummary = {
+      reason,
+      queuedLabelCount: discarded.queuedLabelCount,
+      queuedEventCount: discarded.queuedEventCount,
+      overflowDroppedCount: discarded.droppedCount,
+      suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
+      enqueueFailureCount: diagnosticCallbackFailureCount,
+    };
+  }
+  diagnosticEventsSuppressedAfterStop = 0;
+  diagnosticCallbackFailureCount = 0;
+}
+
+function recordStoppedDiagnosticSummary() {
+  if (!stoppedDiagnosticSummary) return;
+  record('position-diagnostic-queue-stopped', {
+    ...stoppedDiagnosticSummary,
+    suppressedAfterStopCount: Math.min(
+      stoppedDiagnosticSummary.suppressedAfterStopCount + diagnosticEventsSuppressedAfterStop,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    enqueueFailureCount: Math.min(
+      stoppedDiagnosticSummary.enqueueFailureCount + diagnosticCallbackFailureCount,
+      Number.MAX_SAFE_INTEGER,
+    ),
+  });
+  stoppedDiagnosticSummary = null;
+  diagnosticEventsSuppressedAfterStop = 0;
+  diagnosticCallbackFailureCount = 0;
+}
+
 function hookAppBarWindowGeometryEvents() {
   for (const eventName of ['show', 'move', 'resize']) {
     appBarWindow.on(eventName, () => {
-      positionDiagnosticSnapshot(`electron-event:${eventName}`, {
-        source: 'BrowserWindow event',
+      if (suppressDiagnosticEventIfStopped()) return;
+      enqueueDeferredPositionDiagnostic(`electron-event:${eventName}`, {
+        kind: 'electron-window-event',
         eventName,
+        observedAt: new Date().toISOString(),
+        sequence: ++diagnosticEventSequence,
+        appBarStateAtEvent: appBarState,
       });
     });
   }
@@ -427,35 +665,42 @@ function readUnsignedMessageValue(value) {
 function hookAppBarMessages() {
   if (appBarMessagesHooked) return;
   appBarWindow.hookWindowMessage(callbackMessage, (_event, wParam, lParam) => {
-    const notification = readUnsignedMessageValue(wParam);
-    record('appbar-callback-observed', {
-      hwndRole: 'appbar-window',
-      message: callbackMessage,
-      notification,
-      notificationName: notification === ABN_POSCHANGED ? 'ABN_POSCHANGED' : 'other',
-      wParam: Buffer.isBuffer(wParam) ? wParam.toString('hex') : String(wParam),
-      lParam: Buffer.isBuffer(lParam) ? lParam.toString('hex') : String(lParam),
-      handling: 'logged-only plus read-only position measurement; no ABM_QUERY/SETPOS or relocation is implemented',
-    });
-    positionDiagnosticSnapshot('win32-message:appbar-callback', {
-      message: callbackMessage,
-      notification,
-      notificationName: notification === ABN_POSCHANGED ? 'ABN_POSCHANGED' : 'other',
-      action: 'read-only measurement only',
-    });
+    try {
+      if (suppressDiagnosticEventIfStopped()) return;
+      const notification = readUnsignedMessageValue(wParam);
+      enqueueDeferredPositionDiagnostic('win32-message:appbar-callback', {
+        kind: 'win32-message',
+        observedAt: new Date().toISOString(),
+        sequence: ++diagnosticEventSequence,
+        appBarStateAtEvent: appBarState,
+        payload: {
+          message: callbackMessage,
+          notification,
+          wParam: copyMessageParameter(wParam),
+          lParam: copyMessageParameter(lParam),
+        },
+      });
+    } catch {
+      diagnosticCallbackFailureCount = Math.min(diagnosticCallbackFailureCount + 1, Number.MAX_SAFE_INTEGER);
+    }
   });
   appBarWindow.hookWindowMessage(WM_WINDOWPOSCHANGED, (_event, wParam, lParam) => {
-    record('wm-windowposchanged-observed', {
-      hwndRole: 'appbar-window',
-      message: WM_WINDOWPOSCHANGED,
-      wParam: Buffer.isBuffer(wParam) ? wParam.toString('hex') : String(wParam),
-      lParam: Buffer.isBuffer(lParam) ? lParam.toString('hex') : String(lParam),
-      handling: 'logged-only plus read-only position measurement; ABM_WINDOWPOSCHANGED is not sent',
-    });
-    positionDiagnosticSnapshot('win32-message:WM_WINDOWPOSCHANGED', {
-      message: WM_WINDOWPOSCHANGED,
-      action: 'read-only measurement only',
-    });
+    try {
+      if (suppressDiagnosticEventIfStopped()) return;
+      enqueueDeferredPositionDiagnostic('win32-message:WM_WINDOWPOSCHANGED', {
+        kind: 'win32-message',
+        observedAt: new Date().toISOString(),
+        sequence: ++diagnosticEventSequence,
+        appBarStateAtEvent: appBarState,
+        payload: {
+          message: WM_WINDOWPOSCHANGED,
+          wParam: copyMessageParameter(wParam),
+          lParam: copyMessageParameter(lParam),
+        },
+      });
+    } catch {
+      diagnosticCallbackFailureCount = Math.min(diagnosticCallbackFailureCount + 1, Number.MAX_SAFE_INTEGER);
+    }
   });
   appBarMessagesHooked = true;
 }
@@ -623,7 +868,15 @@ function setReservationHeightInternal(height) {
       requestedHeight: height,
       setWindowPosRequest,
     });
-    setTimeout(() => {
+    if (showSettledDiagnosticTimer) clearTimeout(showSettledDiagnosticTimer);
+    showSettledDiagnosticTimer = setTimeout(() => {
+      showSettledDiagnosticTimer = null;
+      if (deferredDiagnosticsStopped || shutdownRequested) return;
+      try {
+        if (!appBarWindow || appBarWindow.isDestroyed()) return;
+      } catch {
+        return;
+      }
       positionDiagnosticSnapshot('after-show-settled', {
         trigger: 'BrowserWindow.showInactive',
         delayMs: SHOW_SETTLED_DIAGNOSTIC_DELAY_MS,
@@ -734,6 +987,7 @@ async function removeAppBarInternal() {
     return { ok: false, state: appBarState, message: `Cannot remove while AppBar state is ${appBarState}` };
   }
 
+  stopDeferredPositionDiagnostics('appbar-removal-started');
   transition(STATE.REMOVING);
   positionDiagnosticSnapshot('before-remove', {
     operation: 'ABM_REMOVE',
@@ -749,6 +1003,7 @@ async function removeAppBarInternal() {
     });
     transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', message: error.message });
     record('ABM_REMOVE-error', { message: error.message });
+    recordStoppedDiagnosticSummary();
     return { ok: false, state: appBarState, message: `ABM_REMOVE threw: ${error.message}` };
   }
   record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
@@ -758,6 +1013,7 @@ async function removeAppBarInternal() {
   });
   if (removeResult === 0n || removeResult === 0) {
     transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', returnValue: String(removeResult) });
+    recordStoppedDiagnosticSummary();
     return { ok: false, state: appBarState, message: 'ABM_REMOVE returned FALSE; release remains unconfirmed' };
   }
 
@@ -778,6 +1034,7 @@ async function removeAppBarInternal() {
     after = currentSnapshot('after-removal');
   } catch (error) {
     transition(STATE.UNKNOWN, { failedOperation: 'release-verification', message: error.message });
+    recordStoppedDiagnosticSummary();
     return {
       ok: false,
       state: appBarState,
@@ -804,6 +1061,7 @@ async function removeAppBarInternal() {
       appBarHidden,
       operatorWindowUnchanged,
     });
+    recordStoppedDiagnosticSummary();
     return {
       ok: false,
       state: appBarState,
@@ -814,6 +1072,7 @@ async function removeAppBarInternal() {
 
   currentHeight = null;
   transition(STATE.RELEASED, { workAreaRestored, appBarHidden, operatorWindowUnchanged });
+  recordStoppedDiagnosticSummary();
   return { ok: true, state: appBarState, snapshot: after };
 }
 
@@ -834,6 +1093,7 @@ function showUnresolvedShutdown(result, reason) {
 async function requestSafeShutdown(reason) {
   if (shutdownPromise) return shutdownPromise;
   shutdownRequested = true;
+  stopDeferredPositionDiagnostics(`safe-shutdown-started:${reason}`);
   announceState();
 
   const task = (async () => {
@@ -869,6 +1129,7 @@ async function requestSafeShutdown(reason) {
       }
     }
 
+    recordStoppedDiagnosticSummary();
     record('safe-shutdown-confirmed', { reason, state: appBarState });
     allowAppBarWindowClose = true;
     if (appBarWindow && !appBarWindow.isDestroyed()) appBarWindow.close();

@@ -37,7 +37,7 @@ The human also supplied `release-verification` with `apiAccepted: true`, `workAr
 
 ## Static analysis and hypotheses
 
-The current call sequence is `ABM_NEW` → `ABM_QUERYPOS` → `ABM_SETPOS` → `SetWindowPos` using the accepted rectangle → `showInactive()`. Existing operation and shutdown behavior is retained. Previously, the first post-position geometry measurement was after `showInactive()`, so the provided logs could not identify whether the mismatch first appeared during `SetWindowPos`, showing, or later OS/window processing.
+The current call sequence is `ABM_NEW` → `ABM_QUERYPOS` → `ABM_SETPOS` → `SetWindowPos` using the accepted rectangle → `showInactive()`. Existing operation and shutdown behavior is retained. The direct samples around these calls can distinguish their positions in the sequence; hooked Windows-message and BrowserWindow-event samples are deferred and describe geometry at their later measurement time, not at the event instant.
 
 | Hypothesis | Evidence to inspect in the new log | What would weaken/refute it |
 |---|---|---|
@@ -50,7 +50,7 @@ None of A–D is confirmed or ruled out by the supplied measurements. In particu
 
 ## Diagnostic fields and event labels
 
-Each JSONL record includes an ISO timestamp in `at`. New geometry records use `event: "position-diagnostic"` plus a `label`; failures to collect a sample use `event: "position-diagnostic-capture-error"`. A failed measurement is represented as `status: "unavailable"` with a reason where possible. The diagnostics catch measurement failures and continue the existing operation path; they do not claim that a missing measurement passed.
+Each JSONL record includes an ISO timestamp in `at` (record creation time). New geometry records use `event: "position-diagnostic"` plus a `label`; failures to collect a sample use `event: "position-diagnostic-capture-error"`. `measurementCapturedAt` marks when the geometry read completed. If capture throws before a complete sample is recorded, `captureFailedAt` identifies the failure time instead. Deferred event samples also include `captureMode: "deferred"`, the original `messageObservedAt` or `eventObservedAt`, and the event sequence/time range. The captured rectangle is a later observation and must not be described as the rectangle at the original message time. A failed measurement is represented as `status: "unavailable"` with a reason where possible. The diagnostics catch measurement failures and continue the existing operation path; they do not claim that a missing measurement passed.
 
 Window measurements are separated by role (`appbar-window` and `operator-window`) and include:
 
@@ -74,10 +74,10 @@ The new labels are:
 | `before-showinactive` / `after-showinactive` | Immediately before and after the existing `showInactive()` call. |
 | `after-show-settled` | One finite read-only sample 250 ms after `showInactive()`. The delay is only a sample point, not a guarantee that all OS processing has settled. |
 | `before-remove` / `after-remove` | Immediately before and after `ABM_REMOVE`, including a thrown-call error if present. |
-| `electron-event:show`, `electron-event:move`, `electron-event:resize` | Event-driven read-only samples from the AppBar `BrowserWindow`. |
-| `win32-message:appbar-callback`, `win32-message:WM_WINDOWPOSCHANGED` | Read-only sample when the existing hooked message is observed. No re-query, re-registration, or relocation is performed. |
+| `electron-event:show`, `electron-event:move`, `electron-event:resize` | Read-only samples scheduled after the AppBar `BrowserWindow` event callback returns. Repeated pending events of the same type are coalesced. |
+| `win32-message:appbar-callback`, `win32-message:WM_WINDOWPOSCHANGED` | Read-only samples scheduled after the hooked message callback returns. The callback only copies bounded scalar/Buffer data into a bounded in-memory queue. No re-query, re-registration, or relocation is performed. |
 
-Existing `measurement`, `reservation-size`, `ABM_NEW`, `ABM_REMOVE`, `release-verification`, and state events remain in the log. `position-diagnostic-capture-error` means only that a diagnostic sample failed; it must not be confused with an AppBar API result. JSONL write failures continue to be handled by the existing non-throwing `record()` path and do not intentionally short-circuit `ABM_REMOVE` or the shutdown guard.
+Existing `measurement`, `reservation-size`, `ABM_NEW`, `ABM_REMOVE`, `release-verification`, and state events remain in the log. `position-diagnostic-capture-error` means only that a diagnostic sample failed; it must not be confused with an AppBar API result. Deferred queue overflow, lifecycle discard, callback capture failure, and deferred diagnostic failure have separate events. The queue holds at most eight distinct event labels, coalesces same-label events, and processes at most two samples per batch with a minimum 100 ms interval between batches. Pending geometry diagnostics are cancelled when removal or safe shutdown begins; any discard summary is written only after the release attempt returns, so it cannot sit ahead of `ABM_REMOVE`. Only one `after-show-settled` timer is pending; a newer show/update replaces its pending sample, and removal or safe shutdown cancels it. JSONL write failures continue to be handled by the existing non-throwing `record()` path and do not intentionally short-circuit `ABM_REMOVE` or the shutdown guard.
 
 The window rectangle APIs are measurement-only here. Microsoft documents `GetWindowRect` as screen coordinates, potentially including invisible resize borders and virtualized for DPI. `DWMWA_EXTENDED_FRAME_BOUNDS` is the visible frame measurement and is not DPI adjusted. Electron's `getBounds()` reports the outer bounds and `getContentBounds()` the content-area bounds; Electron Screen documentation distinguishes physical screen points from DIP points. The diagnostic records values as returned and performs no normalization. See [Electron BrowserWindow](https://www.electronjs.org/docs/latest/api/browser-window), [Electron Screen coordinate spaces](https://www.electronjs.org/docs/latest/api/screen), [Microsoft GetWindowRect](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect), and [Microsoft DWMWINDOWATTRIBUTE](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute).
 
@@ -255,3 +255,54 @@ When reporting the result, include the full new-session JSONL (with private path
 ## Next analysis
 
 The next reviewer should order `position-diagnostic` entries by `at` and compare the same AppBar HWND across labels. Determine the earliest sample at which each rectangle diverges, separately compare Electron and DWM measurements, and note whether a `move`, `resize`, `show`, or `WM_WINDOWPOSCHANGED` event preceded it. Only then propose the smallest placement change. Until that new human evidence exists, the cause remains undetermined and no automatic correction is approved.
+
+## Follow-up: deferred diagnostics after the 2026-11-08 stalled run
+
+### New human observation
+
+In the human run on Windows 11 Pro (1920×1080, one display, 96 DPI; Electron 45.2.3 and Koffi 3.3.7), `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS`, and the 90 px work-area reservation succeeded. Before `SetWindowPos`, the request was `(x=0, y=0, width=1920, height=90, flags=84)`; Electron bounds were `(0,0,1920,90)` and the AppBar window was not visible.
+
+During `WM_WINDOWPOSCHANGED`, the recorded work-area top was 90. `GetWindowRect` was `(0,90)-(1936,188)`, Electron bounds were `(x=8,y=90,width=1920,height=90)`, DWM extended-frame bounds were `(7,90)-(1929,181)`, and the window was visible. The JSONL ended at the `position-diagnostic` for that message. It contained no `after-setwindowpos`, show samples, `ABM_REMOVE`, `release-verification`, or `safe-shutdown-confirmed`. The human later observed Electron main/child processes still present and the work area at `(0,0)-(1920,1032)`. That external work-area value does not establish that the AppBar registration was removed.
+
+The prior message callback synchronously called `record()` and `positionDiagnosticSnapshot()`. That performed native geometry reads, Electron bounds reads, DWM, JSON serialization, and synchronous JSONL file append while handling the hooked message. This is a credible investigation target, not a proven explanation for the stall or the missing later entries.
+
+### Diagnostic design change
+
+The hooked Windows-message callbacks now only read the notification/scalar message data, copy at most 16 bytes from Buffer parameters, capture an observation timestamp and sequence number, and enqueue the event. They do not call Win32/DWM/Electron geometry APIs, serialize JSON, write files, or call AppBar APIs. BrowserWindow `show`, `move`, and `resize` listeners use the same deferred route.
+
+After callbacks return, a bounded scheduler performs the JSONL event record and read-only geometry sample. Same-label events are coalesced while queued; the queue accepts at most eight distinct labels, each batch captures at most two labels, and batches are separated by at least 100 ms. Overflow and lifecycle drops are counted. Measurement errors are isolated from AppBar operations. Removal/safe-shutdown start cancels queued diagnostic work and the finite show-settled timer; a newer show/update replaces the one pending settled sample. Release and shutdown records continue on their existing path. No periodic polling, automatic repositioning, retry loop, or AppBar call was added.
+
+For deferred samples, `messageObservedAt` / `eventObservedAt`, `firstEventSequence` / `lastEventSequence`, and `firstAppBarStateAtEvent` / `lastAppBarStateAtEvent` describe the source event(s); `measurementCapturedAt` and the top-level `appBarState` describe the later geometry read. `at` remains the JSONL record timestamp. These timestamps and states must not be conflated. `coalescedCount` is the number of additional same-label events merged into the sample. A delayed rectangle is evidence of geometry at capture time only.
+
+The existing functional sequence and values remain unchanged: `ABM_NEW` → `ABM_QUERYPOS` → `ABM_SETPOS` → `SetWindowPos` with the accepted rectangle and existing flags → `showInactive()`. `ABM_REMOVE`, work-area/window release verification, and the safe-shutdown guard remain unchanged. No Windows runtime action was performed by Codex for this update.
+
+### Human-only retest
+
+The processing-stall question is **`MANUAL_PENDING`**. Before starting a new session, a human must inspect existing Electron process command lines and independently read the work area. If the previous PoC's release and exit cannot be confirmed, do not start another instance. Do not terminate an existing process, restart Explorer/Windows, or attempt OS-level recovery. Use the existing Phase 0 path/dependency checks above and a normal interactive Windows PowerShell session with no stdout/stderr redirection.
+
+1. Confirm one display at 96 DPI, the expected work area, pinned Electron/Koffi availability, and no prior PoC instance whose state is unclear.
+2. With `$experimentDir` and `$electronExe` set by the validated path block above, launch once in the interactive terminal. Do not redirect stdout/stderr:
+
+   ```powershell
+   & $electronExe $experimentDir
+   $pocExitCode = $LASTEXITCODE
+   "PoC process exit code: $pocExitCode"
+   ```
+
+3. Click **Register 90 px top AppBar** exactly once. Do not change height, move the bar, or launch comparison applications.
+4. Save the new JSONL. Check for `before-setwindowpos`, `after-setwindowpos`, `before-showinactive`, `after-showinactive`, and `after-show-settled`. The message hook's lightweight event is queued during the native call; its `wm-windowposchanged-observed` and `win32-message:WM_WINDOWPOSCHANGED` records are expected only after the callback returns. Compare `messageObservedAt` / `eventObservedAt` and sequence numbers with `measurementCapturedAt`; do not assign the delayed rectangle to the original event time.
+5. Click **Remove and verify**. Continue only if the PoC confirms release and all release-verification flags are true. If removal is failed or uncertain, stop and follow the existing guarded UI; do not force-close.
+6. Click **Safe exit** only after release confirmation. Record the PowerShell exit code and read the work area again after PowerShell regains control.
+
+Do not repeat registration, run height changes, or conduct additional repositioning tests in this run. Preserve the full JSONL privately and redact local paths/user names before sharing.
+
+| Human check | Result | Evidence |
+|---|---|---|
+| Prior process/release state and pre-run work area confirmed | `MANUAL_PENDING` | |
+| 90 px registration performed once | `MANUAL_PENDING` | |
+| `after-setwindowpos` and following samples recorded | `MANUAL_PENDING` | |
+| Explicit removal and all release flags confirmed | `MANUAL_PENDING` | |
+| Safe exit and PowerShell exit code | `MANUAL_PENDING` | |
+| Post-exit work area matches pre-run value | `MANUAL_PENDING` | |
+| Deferred diagnostics prevent the prior stall | `MANUAL_PENDING` | |
+| AppBar position mismatch cause / correction | `MANUAL_PENDING` | |
