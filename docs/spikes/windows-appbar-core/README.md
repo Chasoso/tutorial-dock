@@ -111,7 +111,7 @@ The PoC now creates two `BrowserWindow`s:
 
 The main process serializes measure/register/update/remove operations and exposes the explicit states `unregistered`, `registering`, `registered`, `updating`, `removing`, `released`, and `release-unconfirmed`. The work-area and operator-window baselines are captured immediately before `ABM_NEW`, avoiding use of an earlier startup measurement as the release baseline. A successful `ABM_REMOVE` return alone is insufficient: release is recorded only after `rcWork` exactly matches that baseline, the AppBar window is hidden, and the operator-window bounds still match. Otherwise the status remains unconfirmed and the operator window stays available for human inspection.
 
-Close requests from either window, the safe-exit control, and `before-quit` go through the same guarded shutdown path. The AppBar window is not allowed to close until release is confirmed. If release cannot be confirmed, an error dialog is shown and both windows remain open. File, renderer, or console logging errors are caught separately so they do not interrupt removal. This guard covers normal PoC shutdown only; it does not promise OS recovery after process crash or forced termination. Keeping a window open is not itself proof that the Windows reservation has been restored.
+Close requests from either window, the safe-exit control, and `before-quit` go through the same guarded shutdown path. The AppBar window is not allowed to close until release is confirmed. If release cannot be confirmed, an error dialog is shown and both windows remain open. JSONL file and renderer logging errors are handled separately; event logging does not write to stdout/stderr or control AppBar state transitions. A JSONL write failure sets a nonzero process exit code, appears in the operator event/state display where available, and leaves the guarded removal path callable. This guard covers normal PoC shutdown only; it does not promise OS recovery after process crash or forced termination. Keeping a window open is not itself proof that the Windows reservation has been restored.
 
 ### AppBar notification limitation
 
@@ -239,4 +239,30 @@ Do not continue launching Electron in this environment as part of this bounded i
 
 ## Manual diagnostic package
 
-To run the bounded startup separation from a normal Windows 11 desktop session, use the [manual Electron startup diagnostic](manual-electron-startup.md). It provides separate Test A (Electron only) and conditional Test B (Koffi plus read-only monitor information) commands. The diagnostic source lives under `experiments/windows-appbar-core/startup-diagnostic/`, uses the existing pinned dependencies without installing or downloading, and contains no AppBar operation. **Manual execution remains pending**; this addition does not change any AppBar acceptance result from `NOT_RUN`.
+To run the bounded startup separation from a normal Windows 11 desktop session, use the [manual Electron startup diagnostic](manual-electron-startup.md). It provides separate Test A (Electron only) and conditional Test B (Koffi plus read-only monitor information) commands. The diagnostic source lives under `experiments/windows-appbar-core/startup-diagnostic/`, uses the existing pinned dependencies without installing or downloading, and contains no AppBar operation. At the time of this earlier record, manual execution was still pending; the later human results and remaining checks are recorded below. AppBar acceptance remains `NOT_RUN`.
+
+## Follow-up: EPIPE investigation and JSONL-only diagnostics (2026-11-08)
+
+This update records human-run evidence from the original manual diagnostic and changes only diagnostic logging plus the run instructions. Codex did not launch Electron, call AppBar APIs, or alter the Windows work area.
+
+### Human Test A/B observations
+
+The supplied Test A result was `PASS` for visible window and normal close. That run used the pre-change Test A source. Its main-process logger and heading have now changed; the previous result is retained as evidence for the earlier source version and does not validate the edited source.
+
+The supplied Test B JSONL captured the following sequence: Electron `45.2.3` / Node `24.22.2`; Koffi `3.3.7` loaded; read-only bindings for `MonitorFromWindow` and `GetMonitorInfoW` were ready; and a monitor measurement returned primary bounds `(0,0)-(1920,1080)` and work area `(0,0)-(1920,1032)`. After that measurement, a JavaScript error dialog reported `EPIPE: broken pipe, write` from `Socket._write` through `console.log` in the Test B `log()` function. The path identifies the failing output write, but the reason that pipe closed is unknown. The earlier Koffi and Win32 results remain individually observed; Test B GUI visibility and normal close were not confirmed.
+
+| Check | Result | Evidence state |
+|---|---|---|
+| Test A: Electron GUI display and normal close | `PASS` on prior source | Human-confirmed before the current Test A logger/UI edit; current source runtime remains unverified. |
+| Test B: Koffi 3.3.7 load | `PASS` | Human-supplied JSONL has `koffi-loaded` and version `3.3.7`. |
+| Test B: Win32 read-only API binding | `PASS` | Human-supplied JSONL lists `MonitorFromWindow` and `GetMonitorInfoW`. |
+| Test B: work-area read | `PASS` | Human-supplied JSONL measurement is `(0,0)-(1920,1032)` on primary monitor `(0,0)-(1920,1080)`. |
+| Test B: GUI display and normal close | `NOT_CONFIRMED` | EPIPE dialog followed the measurement; visibility and normal close were not confirmed. |
+| Work-area change during Test B | No change was requested | Only read-only monitor APIs were used; the interrupted run did not produce a post-close comparison. |
+| Windows AppBar registration/work-area reservation | `NOT_RUN` | No AppBar registration or reservation was performed. |
+
+### Logging change and next manual run
+
+Test A, Test B, and the existing AppBar PoC no longer send diagnostic events to `console.log` or `console.error`. JSONL remains the primary event record. Startup diagnostics set `process.exitCode = 1` on JSONL serialization/write failure and attempt to show a window-title warning if a window exists; a missing log must not be interpreted as success. The AppBar PoC records a file-log failure in memory and the operator display, marks a nonzero exit status, and keeps the record operation non-throwing so it cannot prevent `ABM_REMOVE` or the shutdown guard from running. These changes do not establish that the JSONL destination itself is available or that AppBar release works at runtime.
+
+The [manual procedure](manual-electron-startup.md) now uses an interactive direct launch with no stdout/stderr redirection, records the observed Test A/B outcomes, and provides the exact Test B rerun command. Test B GUI display and normal close remain for human re-verification. Work-area reservation, maximized-window avoidance, height changes, and AppBar release remain `NOT_RUN`.

@@ -99,6 +99,7 @@ let currentHeight = null;
 let monitorCount = 0;
 let windowDpi = 0;
 let logFile;
+let logFileFailure = null;
 
 function pointerFromWindowHandle(buffer) {
   if (!Buffer.isBuffer(buffer)) throw new TypeError('Expected Electron HWND Buffer');
@@ -123,15 +124,36 @@ function stateSnapshot() {
     currentHeight,
     appBarWindowReady,
     shutdownRequested,
+    logFileFailure,
   };
 }
 
+function markLogFileFailure(error) {
+  if (!logFileFailure) {
+    let message = String(error?.message ?? error);
+    const localPaths = [process.env.USERPROFILE, process.cwd(), __dirname]
+      .filter((candidate) => typeof candidate === 'string' && candidate.length > 0);
+    for (const localPath of localPaths) {
+      message = message.split(localPath).join('<LOCAL_PATH>');
+    }
+    logFileFailure = { code: error?.code ?? null, message };
+  }
+  process.exitCode = 1;
+}
+
 function record(event, details = {}) {
-  const entry = { at: new Date().toISOString(), event, ...details };
+  const entry = {
+    at: new Date().toISOString(),
+    event,
+    ...details,
+    ...(logFileFailure ? { previousLogFileFailure: logFileFailure } : {}),
+  };
   try {
-    if (logFile) fs.appendFileSync(logFile, `${JSON.stringify(entry)}\n`, 'utf8');
+    if (!logFile) throw new Error('JSONL log file has not been initialized');
+    fs.appendFileSync(logFile, `${JSON.stringify(entry)}\n`, 'utf8');
   } catch (error) {
-    entry.logFileError = error.message;
+    markLogFileFailure(error);
+    entry.logFileError = logFileFailure;
   }
   try {
     if (operatorWindow && !operatorWindow.isDestroyed()) {
@@ -139,11 +161,6 @@ function record(event, details = {}) {
     }
   } catch (error) {
     entry.uiLogError = error.message;
-  }
-  try {
-    console.log(JSON.stringify(entry));
-  } catch {
-    // Logging must not interrupt AppBar state cleanup.
   }
   return entry;
 }
@@ -154,11 +171,7 @@ function announceState() {
       operatorWindow.webContents.send('spike:state', stateSnapshot());
     }
   } catch (error) {
-    try {
-      console.error(`State notification failed: ${error.message}`);
-    } catch {
-      // State and cleanup decisions do not depend on renderer logging.
-    }
+    record('state-notification-failed', { message: error.message });
   }
 }
 
@@ -695,11 +708,8 @@ ipcMain.handle('spike:remove', () => startOperation('remove', removeAppBarIntern
 ipcMain.on('spike:close', () => { void requestSafeShutdown('operator-safe-close-button'); });
 
 app.whenReady().then(createWindows).catch((error) => {
-  try {
-    console.error(error);
-  } catch {
-    // Continue into the guarded application shutdown path.
-  }
+  record('startup-error', { message: error.message });
+  process.exitCode = 1;
   void requestSafeShutdown('startup-error');
 });
 

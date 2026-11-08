@@ -7,6 +7,8 @@ const experimentRoot = path.resolve(__dirname, '..', '..');
 const logDirectory = path.join(experimentRoot, 'logs');
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logFile = path.join(logDirectory, `startup-test-b-${timestamp}.jsonl`);
+let window = null;
+let logFileFailure = null;
 
 function scrub(value) {
   let text = String(value);
@@ -19,31 +21,49 @@ function scrub(value) {
 }
 
 function log(event, details = {}) {
-  const line = JSON.stringify({
-    timestamp: new Date().toISOString(),
-    event,
-    ...details,
-  });
-
+  let line;
   try {
-    console.log(line);
-  } catch {
-    // Console failure must not stop application shutdown.
+    const entry = {
+      timestamp: new Date().toISOString(),
+      event,
+      ...details,
+    };
+    if (logFileFailure) entry.previousLogFailure = logFileFailure;
+    line = `${JSON.stringify(entry)}\n`;
+  } catch (error) {
+    markLogFileFailure(error);
+    return false;
   }
 
   try {
     fs.mkdirSync(logDirectory, { recursive: true });
-    fs.appendFileSync(logFile, `${line}\n`, 'utf8');
+    fs.appendFileSync(logFile, line, 'utf8');
+    showLogFailureWarning();
+    return true;
   } catch (error) {
-    try {
-      console.error(JSON.stringify({
-        timestamp: new Date().toISOString(),
-        event: 'diagnostic-file-log-failed',
-        message: scrub(error?.message ?? error),
-      }));
-    } catch {
-      // Logging is best-effort and must not block startup or close.
+    markLogFileFailure(error);
+    return false;
+  }
+}
+
+function markLogFileFailure(error) {
+  if (!logFileFailure) {
+    logFileFailure = {
+      code: error?.code ?? null,
+      message: scrub(error?.message ?? error),
+    };
+  }
+  process.exitCode = 1;
+  showLogFailureWarning();
+}
+
+function showLogFailureWarning() {
+  try {
+    if (logFileFailure && window && !window.isDestroyed()) {
+      window.setTitle('Test B — JSONL logging failed; result is not PASS');
     }
+  } catch {
+    // The nonzero exit code remains the failure signal if UI reporting is unavailable.
   }
 }
 
@@ -69,7 +89,6 @@ try {
 const { app, BrowserWindow, ipcMain } = electron;
 let koffi = null;
 let monitorInfoForWindow = null;
-let window = null;
 let koffiVersion = null;
 
 log('koffi-load-started', { expectedVersion: '3.3.7' });
@@ -185,9 +204,9 @@ const html = `<!doctype html>
   </style>
 </head>
 <body>
-  <h1>Electron startup test — Koffi read-only</h1>
+  <h1>Electron startup diagnostic — Test B</h1>
   <p>Test B: Koffi load and read-only monitor query. No AppBar operation.</p>
-  <p>See the PowerShell output and the JSONL log for the measured work area.</p>
+  <p>Use the JSONL log for results. A visible window alone is not a PASS.</p>
   <button id="close" type="button">Close test window</button>
   <script>document.getElementById('close').addEventListener('click', () => window.startupDiagnostic.close());</script>
 </body>

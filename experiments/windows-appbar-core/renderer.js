@@ -39,6 +39,10 @@ function updateControls(snapshot) {
     button.disabled = busy || state !== 'registered';
   });
   removeButton.disabled = busy || !['registered', 'release-unconfirmed'].includes(state);
+  if (snapshot.logFileFailure) {
+    const code = snapshot.logFileFailure.code || 'unknown';
+    status.textContent = `JSONL logging failed (${code}). Current AppBar state is ${state}; logging failure does not confirm release. Use the guarded controls and verify release before closing.`;
+  }
 }
 
 window.appbarSpike.onLog(addLog);
