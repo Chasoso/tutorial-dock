@@ -509,7 +509,7 @@ function deferredDiagnosticCaptureAllowed() {
 function flushDeferredPositionDiagnostics() {
   if (!deferredDiagnosticCaptureAllowed()) {
     const discarded = deferredPositionDiagnostics.clear();
-    if (discarded.queuedCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop) {
+    if (discarded.queuedLabelCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop) {
       record('position-diagnostic-queue-discarded', {
         reason: 'capture-unavailable-or-lifecycle-ending',
         queuedLabelCount: discarded.queuedLabelCount,
@@ -989,29 +989,17 @@ async function removeAppBarInternal() {
 
   stopDeferredPositionDiagnostics('appbar-removal-started');
   transition(STATE.REMOVING);
-  positionDiagnosticSnapshot('before-remove', {
-    operation: 'ABM_REMOVE',
-    hwndRole: 'appbar-window',
-  });
   let removeResult;
   try {
     removeResult = SHAppBarMessage(APPBAR.REMOVE, appBarData());
   } catch (error) {
-    positionDiagnosticSnapshot('after-remove', {
-      operation: 'ABM_REMOVE',
-      callError: error?.message ?? String(error),
-    });
     transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', message: error.message });
     record('ABM_REMOVE-error', { message: error.message });
     recordStoppedDiagnosticSummary();
     return { ok: false, state: appBarState, message: `ABM_REMOVE threw: ${error.message}` };
   }
-  record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
-  positionDiagnosticSnapshot('after-remove', {
-    operation: 'ABM_REMOVE',
-    returnValue: String(removeResult),
-  });
   if (removeResult === 0n || removeResult === 0) {
+    record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
     transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', returnValue: String(removeResult) });
     recordStoppedDiagnosticSummary();
     return { ok: false, state: appBarState, message: 'ABM_REMOVE returned FALSE; release remains unconfirmed' };
@@ -1033,6 +1021,7 @@ async function removeAppBarInternal() {
   try {
     after = currentSnapshot('after-removal');
   } catch (error) {
+    record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
     transition(STATE.UNKNOWN, { failedOperation: 'release-verification', message: error.message });
     recordStoppedDiagnosticSummary();
     return {
@@ -1045,6 +1034,7 @@ async function removeAppBarInternal() {
   const workAreaRestored = sameRect(after.workArea, reservationBaselineWorkArea);
   const appBarHidden = !appBarWindow.isVisible();
   const operatorWindowUnchanged = sameRect(after.operatorWindow, operatorWindowBaseline);
+  record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
   record('release-verification', {
     apiAccepted: true,
     reservationBaselineWorkArea,
