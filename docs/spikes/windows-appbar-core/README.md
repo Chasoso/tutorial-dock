@@ -117,9 +117,9 @@ Close requests from either window, the safe-exit control, and `before-quit` go t
 
 The AppBar callback and `WM_WINDOWPOSCHANGED` hooks remain **log-only**. `ABN_POSCHANGED` does not trigger a new `ABM_QUERYPOS`/`ABM_SETPOS` sequence or relocation. The PoC does not send `ABM_WINDOWPOSCHANGED` after repositioning. Correct alignment between the window rectangle and reserved rectangle, shell/taskbar-induced repositioning, and notification-driven recovery therefore remain unverified. The PoC must not be described as a complete AppBar implementation.
 
-### Read-only Electron acquisition investigation
+### Read-only Electron acquisition investigation (earlier inspection)
 
-No installation, download, alternate mirror, network probe, or Electron launch was performed during this follow-up.
+At that inspection, no installation, download, alternate mirror, network probe, or Electron launch was performed.
 
 | Check | Observation |
 |---|---|
@@ -131,15 +131,15 @@ No installation, download, alternate mirror, network probe, or Electron launch w
 | npm cache/log details | Standard npm debug-log locations inspected were absent/empty. An npm cache configuration query was rejected by the environment as protected; its internal error path was not inspected. No lower-level log proving the failed network stage was available. |
 | Prior error | The earlier Electron launcher attempt reported `TypeError: fetch failed`; the single unchanged retry was already used. A later escalated retry was rejected by automatic approval review under the bounded-retry rule. No retry or workaround was attempted here. |
 
-Offline inspection of the installed package shows `electron/install.js` calls `@electron/get` for `win32`, `x64`, version `45.2.3`, with package checksums enabled by default. The configured default release artifact is `electron-45.2.3-win32-x64.zip` at `https://github.com/electron/electron/releases/download/45.2.3/electron-45.2.3-win32-x64.zip`. This is the package's intended URL, not evidence that the host was reachable or that a transfer began.
+**Correction:** the URL above was incorrectly calculated by calling `getArtifactRemoteURL` with the unnormalized version. The actual `downloadArtifact` path first calls `getArtifactVersion`, which normalizes `45.2.3` to `v45.2.3`, and then builds the filename and URL. The normal package path therefore produces `electron-v45.2.3-win32-x64.zip` at `https://github.com/electron/electron/releases/download/v45.2.3/electron-v45.2.3-win32-x64.zip`. The package's bundled checksum key matches that filename. The earlier failed attempt's detailed URL was not retained, so URL mismatch is **not established as its cause**; the previous error remains unexplained.
 
 The cause of `TypeError: fetch failed` remains **undetermined**. DNS resolution, HTTPS connectivity, TLS validation, network policy, system/WinHTTP proxy behavior, and a transient GitHub-side failure were not discriminated. A corrupt Electron cache is not supported by the observed state because the expected cache and executable are absent, but the failed request's exact point of failure is unknown. Local execute permission was not tested because there is no executable to launch.
 
-**Next human approval needed:** authorize one bounded retrieval of the pinned official Electron `45.2.3` Windows x64 artifact through the normal package-install path in this isolated experiment directory, after confirming that the environment permits access to the URL above; alternatively, provide a trusted copy of that exact official artifact and its verified checksum. Do not use another URL, mirror, elevated install, or retry before that authorization. Once the binary is available, run the existing PoC only after reviewing the release guard and recording the current display/work-area state.
+At the time of this earlier inspection, a new human-authorized attempt to retrieve the pinned official artifact was the resume condition. That approval was provided and used once in the follow-up below.
 
 ### Follow-up verification status
 
-Static checks performed for this change: JavaScript syntax checks for `main.cjs`, `preload.cjs`, and `renderer.js`; JSON parsing of `package-lock.json`; and `git diff --check`. They do not exercise Electron IPC, Win32 calls, or OS behavior. The PoC code uses only the AppBar window handle for AppBar operations and compares the operator-window bounds at release; runtime confirmation awaits a permitted Electron launch.
+Static checks performed for that PoC change: JavaScript syntax checks for `main.cjs`, `preload.cjs`, and `renderer.js`; JSON parsing of `package-lock.json`; and `git diff --check`. They do not exercise Electron IPC, Win32 calls, or OS behavior. The PoC code uses only the AppBar window handle for AppBar operations and compares the operator-window bounds at release.
 
 | Check | Related criterion | Follow-up result |
 |---|---|---|
@@ -149,6 +149,47 @@ Static checks performed for this change: JavaScript syntax checks for `main.cjs`
 | Release and normal shutdown verification | SC-006 | `NOT_RUN`; no AppBar API call or Electron launch |
 | `ABN_POSCHANGED` relocation and `ABM_WINDOWPOSCHANGED` notification | Spike follow-up | Not implemented and `NOT_RUN`; explicitly out of the current PoC behavior |
 | Electron binary retrieval failure cause | Environment investigation | Partially investigated; exact network failure stage remains unknown |
+
+## Follow-up: official Electron retrieval and PoC startup (2026-11-08)
+
+This follow-up used the human-approved single acquisition attempt. The official Electron release URL and bundled SHA-256 were verified before retrieval. No mirror, alternate source, administrator install, security-setting change, or AppBar registration was used.
+
+### URL-generation verification
+
+Read-only inspection of the installed `@electron/get` 5.1.0 source established the actual path through `downloadArtifact`: it calls `getArtifactVersion(details)` before `getArtifactFileName(details)` and `getArtifactRemoteURL(details)`. With Electron package version `45.2.3`, `artifactName=electron`, `platform=win32`, and `arch=x64`, and with no mirror/custom URL overrides present, the values were:
+
+- normalized version: `v45.2.3`
+- artifact: `electron-v45.2.3-win32-x64.zip`
+- URL: `https://github.com/electron/electron/releases/download/v45.2.3/electron-v45.2.3-win32-x64.zip`
+- bundled SHA-256: `489cd061908e697394b004298bf5ffd345c935d10e8ca197ba819f019ab2dec0`
+
+The earlier investigation's direct call to `getArtifactRemoteURL` skipped the preceding normalization step and consequently reported the wrong URL. That was an error in the investigation record, not evidence of an override in the package configuration. The earlier `TypeError: fetch failed` still cannot be attributed to that incorrect recorded URL because its original full request log is unavailable.
+
+### Retrieval and executable verification
+
+The local Electron CLI invoked the package's `install.js` once. Its detailed diagnostic log records a cache miss followed by a download from the official URL above, artifact validation, and cache placement. The locally computed SHA-256 of the downloaded archive matched the bundled checksum exactly: `489cd061908e697394b004298bf5ffd345c935d10e8ca197ba819f019ab2dec0`. The archive size was 158,182,975 bytes. The CLI returned `v45.2.3` with exit code 0. The binary is present at the experiment dependency's expected path; no package version or repository dependency declaration changed.
+
+The diagnostic log is under the ignored experiment `logs/` directory and is not committed. Its local paths are omitted from this document.
+
+### PoC startup attempt and Windows state
+
+The first `npm start` exited with code 1 and produced no PoC session log. A single diagnostic startup attempt with Electron logging enabled then exited with code `-2147483645` (`0x80000003`). Its captured output was `Received fatal exception EXCEPTION_BREAKPOINT` followed by an unresolved backtrace with no symbols. No `session-*.jsonl` file was created, and no Electron process remained. The Codex desktop window inventory showed neither the operator window nor the AppBar window.
+
+A read-only query of recent Windows Application events for Electron failures was denied with `Attempted to perform an unauthorized operation`; it was not retried with elevated privileges. The available log does not identify the faulting module or prove whether the exception occurred in Electron startup, loading the app's native dependency, or another startup component. No cause is asserted.
+
+After the failed startup, a read-only `GetMonitorInfoW` measurement reported one monitor `(0,0)-(1920,1080)` and work area `(0,0)-(1920,1032)`, matching the recorded pre-experiment baseline. No `SHAppBarMessage` registration/update/removal call was made, and the work area was not changed by this follow-up.
+
+| Check | Result | Evidence / limitation |
+|---|---|---|
+| Actual URL generated by the normal `@electron/get` flow | `PASS` | Normalization + filename + URL generation produced the official URL above; no URL override was present. |
+| Electron 45.2.3 binary retrieval | `PASS` | One authorized CLI install attempt; official package SHA-256 matched the bundled checksum. |
+| Electron executable/version | `PASS` | Local CLI returned `v45.2.3`, exit code 0. |
+| PoC application startup | `FAIL` | Diagnostic launch exited `0x80000003` with `EXCEPTION_BREAKPOINT`; faulting module is unknown. |
+| Operator and AppBar windows displayed | `NOT_RUN` | The app terminated before either window appeared; desktop inventory confirmed neither was present. |
+| Work area unchanged | `PASS` | Post-attempt `GetMonitorInfoW` matched the recorded baseline; no AppBar API registration was called. |
+| AppBar registration, height changes, and release | `NOT_RUN` | Explicitly not attempted. |
+
+AppBar hardware verification **cannot proceed yet** because the PoC does not start. The next step is to identify the startup exception, starting with a human-accessible Windows Application/WER record for the captured time or a crash report that identifies the faulting module. This environment denied the read-only event-log query, and no further launch or privileged query was attempted. After the failure is understood and an authorized corrective change is reviewed, rerun only the no-registration startup check before proceeding to any AppBar operation.
 
 ## Technical references
 
