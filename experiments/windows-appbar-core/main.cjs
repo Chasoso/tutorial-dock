@@ -19,6 +19,8 @@ const APPBAR = Object.freeze({
 const ABN_POSCHANGED = 0x00000001;
 const WM_WINDOWPOSCHANGED = 0x0047;
 const SM_CMONITORS = 80;
+const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+const SHOW_SETTLED_DIAGNOSTIC_DELAY_MS = 250;
 
 const STATE = Object.freeze({
   UNREGISTERED: 'unregistered',
@@ -98,8 +100,12 @@ let operatorWindowBaseline;
 let currentHeight = null;
 let monitorCount = 0;
 let windowDpi = 0;
+let requestedAppBarCreationBounds;
+let lastSetWindowPosRequest = null;
 let logFile;
 let logFileFailure = null;
+let dwmGetWindowAttribute;
+let dwmBindingFailure = null;
 
 function pointerFromWindowHandle(buffer) {
   if (!Buffer.isBuffer(buffer)) throw new TypeError('Expected Electron HWND Buffer');
@@ -231,6 +237,145 @@ function nativeWindowRect(hwnd, name) {
   return rectCopy(rect);
 }
 
+function diagnosticErrorText(error) {
+  let message = String(error?.message ?? error);
+  const localPaths = [process.env.USERPROFILE, process.cwd(), __dirname]
+    .filter((candidate) => typeof candidate === 'string' && candidate.length > 0);
+  for (const localPath of localPaths) message = message.split(localPath).join('<LOCAL_PATH>');
+  return message;
+}
+
+function diagnosticRead(read) {
+  try {
+    return { status: 'ok', value: read() };
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason: diagnosticErrorText(error),
+    };
+  }
+}
+
+function dwmExtendedFrameBounds(hwnd) {
+  if (!dwmGetWindowAttribute && !dwmBindingFailure) {
+    try {
+      const dwmapi = koffi.load('dwmapi.dll');
+      dwmGetWindowAttribute = dwmapi.func(
+        'int32_t __stdcall DwmGetWindowAttribute(void *hwnd, uint32_t dwAttribute, _Out_ SpikeRECT *pvAttribute, uint32_t cbAttribute)',
+      );
+    } catch (error) {
+      dwmBindingFailure = diagnosticErrorText(error);
+    }
+  }
+  if (!dwmGetWindowAttribute) {
+    throw new Error(`DwmGetWindowAttribute binding unavailable: ${dwmBindingFailure || 'unknown binding error'}`);
+  }
+
+  const rect = {};
+  const result = dwmGetWindowAttribute(
+    hwnd,
+    DWMWA_EXTENDED_FRAME_BOUNDS,
+    rect,
+    koffi.sizeof(RECT),
+  );
+  if (result !== 0) {
+    throw new Error(`DwmGetWindowAttribute failed; HRESULT=0x${(result >>> 0).toString(16).padStart(8, '0')}`);
+  }
+  return { hresult: result, rect: rectCopy(rect) };
+}
+
+function diagnosticWindowMeasurements(window, hwnd, role) {
+  let isDestroyed;
+  try {
+    isDestroyed = !window || window.isDestroyed();
+  } catch (error) {
+    const unavailable = {
+      status: 'unavailable',
+      reason: `BrowserWindow availability check failed: ${diagnosticErrorText(error)}`,
+    };
+    return {
+      hwndRole: role,
+      getWindowRect: unavailable,
+      electronGetBounds: unavailable,
+      electronGetContentBounds: unavailable,
+      isVisible: unavailable,
+      dwmExtendedFrameBounds: unavailable,
+    };
+  }
+  if (isDestroyed) {
+    const unavailable = { status: 'unavailable', reason: 'BrowserWindow is not available' };
+    return {
+      hwndRole: role,
+      getWindowRect: unavailable,
+      electronGetBounds: unavailable,
+      electronGetContentBounds: unavailable,
+      isVisible: unavailable,
+      dwmExtendedFrameBounds: unavailable,
+    };
+  }
+
+  return {
+    hwndRole: role,
+    getWindowRect: diagnosticRead(() => nativeWindowRect(hwnd, role)),
+    electronGetBounds: diagnosticRead(() => window.getBounds()),
+    electronGetContentBounds: diagnosticRead(() => window.getContentBounds()),
+    isVisible: diagnosticRead(() => window.isVisible()),
+    dwmExtendedFrameBounds: diagnosticRead(() => dwmExtendedFrameBounds(hwnd)),
+  };
+}
+
+function positionDiagnosticSnapshot(label, details = {}) {
+  try {
+    const monitor = diagnosticRead(() => monitorInfo());
+    record('position-diagnostic', {
+      label,
+      appBarState,
+      registrationState: appBarState,
+      currentHeight,
+      requestedAppBarCreationBounds: requestedAppBarCreationBounds ?? null,
+      lastSetWindowPosRequest,
+      details,
+      coordinateNotes: {
+        getWindowRect: 'Win32 screen RECT; GetWindowRect may include invisible resize borders and is DPI-virtualized.',
+        electronGetBounds: 'Raw Electron BrowserWindow outer Rectangle; Electron and Win32 coordinates may use different DPI spaces, and no conversion is applied.',
+        electronGetContentBounds: 'Raw Electron BrowserWindow client/content Rectangle; Electron and Win32 coordinates may use different DPI spaces, and no conversion is applied.',
+        dwmExtendedFrameBounds: 'DWM screen-space extended frame RECT; Microsoft documents that it is not DPI-adjusted.',
+        comparison: 'Keep each API result separate. Differences are measurements, not a diagnosis until coordinate spaces and frame definitions are accounted for.',
+      },
+      measurements: {
+        monitorAndWorkArea: monitor.status === 'ok'
+          ? {
+              status: 'ok',
+              apiResults: { MonitorFromWindow: 'handle-returned', GetMonitorInfoW: true },
+              monitor: monitor.value.monitor,
+              workArea: monitor.value.workArea,
+              primary: monitor.value.primary,
+            }
+          : monitor,
+        appBarWindow: diagnosticWindowMeasurements(appBarWindow, appBarHandle, 'appbar-window'),
+        operatorWindow: diagnosticWindowMeasurements(operatorWindow, operatorHandle, 'operator-window'),
+      },
+    });
+  } catch (error) {
+    record('position-diagnostic-capture-error', {
+      label,
+      reason: diagnosticErrorText(error),
+      note: 'Diagnostic capture failed; AppBar operation flow continues without this sample.',
+    });
+  }
+}
+
+function hookAppBarWindowGeometryEvents() {
+  for (const eventName of ['show', 'move', 'resize']) {
+    appBarWindow.on(eventName, () => {
+      positionDiagnosticSnapshot(`electron-event:${eventName}`, {
+        source: 'BrowserWindow event',
+        eventName,
+      });
+    });
+  }
+}
+
 function taskbarBounds() {
   const taskbar = FindWindowW('Shell_TrayWnd', null);
   if (!taskbar) return null;
@@ -290,7 +435,13 @@ function hookAppBarMessages() {
       notificationName: notification === ABN_POSCHANGED ? 'ABN_POSCHANGED' : 'other',
       wParam: Buffer.isBuffer(wParam) ? wParam.toString('hex') : String(wParam),
       lParam: Buffer.isBuffer(lParam) ? lParam.toString('hex') : String(lParam),
-      handling: 'logged-only; no re-query or relocation is implemented',
+      handling: 'logged-only plus read-only position measurement; no ABM_QUERY/SETPOS or relocation is implemented',
+    });
+    positionDiagnosticSnapshot('win32-message:appbar-callback', {
+      message: callbackMessage,
+      notification,
+      notificationName: notification === ABN_POSCHANGED ? 'ABN_POSCHANGED' : 'other',
+      action: 'read-only measurement only',
     });
   });
   appBarWindow.hookWindowMessage(WM_WINDOWPOSCHANGED, (_event, wParam, lParam) => {
@@ -299,7 +450,11 @@ function hookAppBarMessages() {
       message: WM_WINDOWPOSCHANGED,
       wParam: Buffer.isBuffer(wParam) ? wParam.toString('hex') : String(wParam),
       lParam: Buffer.isBuffer(lParam) ? lParam.toString('hex') : String(lParam),
-      handling: 'logged-only; ABM_WINDOWPOSCHANGED is not sent',
+      handling: 'logged-only plus read-only position measurement; ABM_WINDOWPOSCHANGED is not sent',
+    });
+    positionDiagnosticSnapshot('win32-message:WM_WINDOWPOSCHANGED', {
+      message: WM_WINDOWPOSCHANGED,
+      action: 'read-only measurement only',
     });
   });
   appBarMessagesHooked = true;
@@ -323,8 +478,31 @@ function setReservationHeightInternal(height) {
       bottom: before.monitor.top + height,
     };
     const query = appBarData(proposed);
-    const queryResult = SHAppBarMessage(APPBAR.QUERYPOS, query);
+    positionDiagnosticSnapshot('before-querypos', {
+      operation: 'ABM_QUERYPOS',
+      requestedHeight: height,
+      proposedRect: proposed,
+    });
+    let queryResult;
+    try {
+      queryResult = SHAppBarMessage(APPBAR.QUERYPOS, query);
+    } catch (error) {
+      positionDiagnosticSnapshot('after-querypos', {
+        operation: 'ABM_QUERYPOS',
+        requestedHeight: height,
+        proposedRect: proposed,
+        callError: error?.message ?? String(error),
+      });
+      throw error;
+    }
     const queriedRect = rectCopy(query.rc);
+    positionDiagnosticSnapshot('after-querypos', {
+      operation: 'ABM_QUERYPOS',
+      requestedHeight: height,
+      returnValue: String(queryResult),
+      proposedRect: proposed,
+      queriedRect,
+    });
     if (queryResult === 0n || queryResult === 0) {
       throw new Error('ABM_QUERYPOS returned FALSE');
     }
@@ -336,8 +514,33 @@ function setReservationHeightInternal(height) {
       bottom: queriedRect.top + height,
     };
     const setPosition = appBarData(finalRect);
-    const setResult = SHAppBarMessage(APPBAR.SETPOS, setPosition);
-    if (setResult === 0n || setResult === 0) {
+    positionDiagnosticSnapshot('before-setpos', {
+      operation: 'ABM_SETPOS',
+      requestedHeight: height,
+      finalRect,
+    });
+    let setResult;
+    try {
+      setResult = SHAppBarMessage(APPBAR.SETPOS, setPosition);
+    } catch (error) {
+      positionDiagnosticSnapshot('after-setpos', {
+        operation: 'ABM_SETPOS',
+        requestedHeight: height,
+        submittedRect: finalRect,
+        callError: error?.message ?? String(error),
+      });
+      throw error;
+    }
+    const accepted = !(setResult === 0n || setResult === 0);
+    const acceptedRect = accepted ? rectCopy(setPosition.rc) : null;
+    positionDiagnosticSnapshot('after-setpos', {
+      operation: 'ABM_SETPOS',
+      requestedHeight: height,
+      returnValue: String(setResult),
+      submittedRect: finalRect,
+      acceptedRect: acceptedRect ?? { status: 'unavailable', reason: 'ABM_SETPOS returned FALSE' },
+    });
+    if (!accepted) {
       record('ABM_SETPOS-unexpected-false', {
         returnValue: String(setResult),
         requestedHeight: height,
@@ -345,17 +548,49 @@ function setReservationHeightInternal(height) {
       throw new Error('ABM_SETPOS returned FALSE; retain the AppBar window until Remove is verified');
     }
 
-    const acceptedRect = rectCopy(setPosition.rc);
-    const moved = Boolean(SetWindowPos(
-      appBarHandle,
-      null,
-      acceptedRect.left,
-      acceptedRect.top,
-      acceptedRect.right - acceptedRect.left,
-      acceptedRect.bottom - acceptedRect.top,
-      APPBAR.SWP_NOZORDER | APPBAR.SWP_NOACTIVATE | APPBAR.SWP_SHOWWINDOW,
-    ));
+    const setWindowPosRequest = {
+      hwndRole: 'appbar-window',
+      x: acceptedRect.left,
+      y: acceptedRect.top,
+      width: acceptedRect.right - acceptedRect.left,
+      height: acceptedRect.bottom - acceptedRect.top,
+      flags: APPBAR.SWP_NOZORDER | APPBAR.SWP_NOACTIVATE | APPBAR.SWP_SHOWWINDOW,
+      acceptedRect,
+    };
+    lastSetWindowPosRequest = setWindowPosRequest;
+    positionDiagnosticSnapshot('before-setwindowpos', {
+      operation: 'SetWindowPos',
+      requestedHeight: height,
+      setWindowPosRequest,
+    });
+    let moved;
+    try {
+      moved = Boolean(SetWindowPos(
+        appBarHandle,
+        null,
+        setWindowPosRequest.x,
+        setWindowPosRequest.y,
+        setWindowPosRequest.width,
+        setWindowPosRequest.height,
+        setWindowPosRequest.flags,
+      ));
+    } catch (error) {
+      positionDiagnosticSnapshot('after-setwindowpos', {
+        operation: 'SetWindowPos',
+        requestedHeight: height,
+        setWindowPosRequest,
+        callError: error?.message ?? String(error),
+      });
+      throw error;
+    }
     const setWindowPosError = moved ? null : GetLastError();
+    positionDiagnosticSnapshot('after-setwindowpos', {
+      operation: 'SetWindowPos',
+      requestedHeight: height,
+      setWindowPosRequest,
+      returnValue: moved,
+      getLastError: setWindowPosError,
+    });
     const after = monitorInfo();
     const result = {
       requestedHeight: height,
@@ -377,7 +612,26 @@ function setReservationHeightInternal(height) {
     if (!moved) {
       throw new Error(`SetWindowPos failed; GetLastError=${setWindowPosError}`);
     }
+    positionDiagnosticSnapshot('before-showinactive', {
+      operation: 'BrowserWindow.showInactive',
+      requestedHeight: height,
+      setWindowPosRequest,
+    });
     appBarWindow.showInactive();
+    positionDiagnosticSnapshot('after-showinactive', {
+      operation: 'BrowserWindow.showInactive',
+      requestedHeight: height,
+      setWindowPosRequest,
+    });
+    setTimeout(() => {
+      positionDiagnosticSnapshot('after-show-settled', {
+        trigger: 'BrowserWindow.showInactive',
+        delayMs: SHOW_SETTLED_DIAGNOSTIC_DELAY_MS,
+        requestedHeight: height,
+        setWindowPosRequest,
+        note: 'One finite read-only sample; this delay is a measurement point, not a guarantee that all OS/window processing has completed.',
+      });
+    }, SHOW_SETTLED_DIAGNOSTIC_DELAY_MS);
 
     currentHeight = height;
     const snapshot = currentSnapshot(`reservation-height-${height}`);
@@ -425,8 +679,28 @@ async function registerAppBarInternal() {
 
     const registration = appBarData();
     newCallStarted = true;
-    const result = SHAppBarMessage(APPBAR.NEW, registration);
+    positionDiagnosticSnapshot('before-appbar-new', {
+      operation: 'ABM_NEW',
+      requestedRect: rectCopy(registration.rc),
+      callbackMessage,
+    });
+    let result;
+    try {
+      result = SHAppBarMessage(APPBAR.NEW, registration);
+    } catch (error) {
+      positionDiagnosticSnapshot('after-appbar-new', {
+        operation: 'ABM_NEW',
+        callError: error?.message ?? String(error),
+      });
+      throw error;
+    }
     record('ABM_NEW', { hwndRole: 'appbar-window', returnValue: String(result), callbackMessage });
+    positionDiagnosticSnapshot('after-appbar-new', {
+      operation: 'ABM_NEW',
+      returnValue: String(result),
+      acceptedOrRejected: result === 0n || result === 0 ? 'rejected' : 'accepted',
+      requestedRect: rectCopy(registration.rc),
+    });
     if (result === 0n || result === 0) {
       newCallStarted = false;
       transition(STATE.UNREGISTERED, { registrationAccepted: false });
@@ -461,15 +735,27 @@ async function removeAppBarInternal() {
   }
 
   transition(STATE.REMOVING);
+  positionDiagnosticSnapshot('before-remove', {
+    operation: 'ABM_REMOVE',
+    hwndRole: 'appbar-window',
+  });
   let removeResult;
   try {
     removeResult = SHAppBarMessage(APPBAR.REMOVE, appBarData());
   } catch (error) {
+    positionDiagnosticSnapshot('after-remove', {
+      operation: 'ABM_REMOVE',
+      callError: error?.message ?? String(error),
+    });
     transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', message: error.message });
     record('ABM_REMOVE-error', { message: error.message });
     return { ok: false, state: appBarState, message: `ABM_REMOVE threw: ${error.message}` };
   }
   record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
+  positionDiagnosticSnapshot('after-remove', {
+    operation: 'ABM_REMOVE',
+    returnValue: String(removeResult),
+  });
   if (removeResult === 0n || removeResult === 0) {
     transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', returnValue: String(removeResult) });
     return { ok: false, state: appBarState, message: 'ABM_REMOVE returned FALSE; release remains unconfirmed' };
@@ -611,11 +897,14 @@ function createWindows() {
   const bounds = primary.bounds;
   const workArea = primary.workArea;
 
-  appBarWindow = new BrowserWindow({
+  requestedAppBarCreationBounds = {
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
     height: 90,
+  };
+  appBarWindow = new BrowserWindow({
+    ...requestedAppBarCreationBounds,
     show: false,
     frame: false,
     resizable: false,
@@ -667,6 +956,7 @@ function createWindows() {
   windowDpi = GetDpiForWindow(appBarHandle);
   logFile = path.join(__dirname, 'logs', `session-${new Date().toISOString().replaceAll(':', '-')}.jsonl`);
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  hookAppBarWindowGeometryEvents();
 
   operatorWindow.on('close', (event) => {
     if (allowOperatorWindowClose) return;
@@ -681,6 +971,7 @@ function createWindows() {
     operatorWindow.show();
     const snapshot = currentSnapshot('startup-baseline');
     startupWorkArea = snapshot.workArea;
+    positionDiagnosticSnapshot('startup-baseline');
     record('environment', {
       electron: process.versions.electron,
       node: process.versions.node,

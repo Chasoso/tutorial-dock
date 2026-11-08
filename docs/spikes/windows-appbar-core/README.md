@@ -266,3 +266,25 @@ The supplied Test B JSONL captured the following sequence: Electron `45.2.3` / N
 Test A, Test B, and the existing AppBar PoC no longer send diagnostic events to `console.log` or `console.error`. JSONL remains the primary event record. Startup diagnostics set `process.exitCode = 1` on JSONL serialization/write failure and attempt to show a window-title warning if a window exists; a missing log must not be interpreted as success. The AppBar PoC records a file-log failure in memory and the operator display, marks a nonzero exit status, and keeps the record operation non-throwing so it cannot prevent `ABM_REMOVE` or the shutdown guard from running. These changes do not establish that the JSONL destination itself is available or that AppBar release works at runtime.
 
 The [manual procedure](manual-electron-startup.md) now uses an interactive direct launch with no stdout/stderr redirection, records the observed Test A/B outcomes, and provides the exact Test B rerun command. Test B GUI display and normal close remain for human re-verification. Work-area reservation, maximized-window avoidance, height changes, and AppBar release remain `NOT_RUN`.
+
+## Follow-up: AppBar window position diagnostics (2026-11-08)
+
+This follow-up records later human-run AppBar observations and adds read-only geometry diagnostics plus a bounded manual procedure. Codex did not start Electron, call an AppBar API, or change the Windows work area. The original AppBar register, reserve, show, remove, and guarded-shutdown behavior was not intentionally changed.
+
+### Human observations supplied for this follow-up
+
+The reported environment was Windows 11 Pro, one 1920×1080 display, 96 DPI. The human reported successful `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS`, `SetWindowPos`, work-area reservation at 90 px and 34 px, return to 90 px, `ABM_REMOVE`, and restoration of the pre-registration work area.
+
+For a 90 px request, the proposed, queried, and accepted rectangle was `(0,0)-(1920,90)`, and the work area became `(0,90)-(1920,1032)`. `ABM_QUERYPOS` and `ABM_SETPOS` returned `1`, `SetWindowPos` returned `true`, and `matchesExpectedTop` was `true`. The subsequent AppBar `GetWindowRect` was `(0,90)-(1936,188)`. For 34 px, the accepted rectangle was `(0,0)-(1920,34)`, work area `(0,34)-(1920,1032)`, and AppBar `GetWindowRect` `(0,34)-(1936,132)`. Before registration, `GetWindowRect` was `(-8,0)-(1928,98)`.
+
+The supplied in-process `release-verification` reported `apiAccepted`, `workAreaRestored`, `appBarHidden`, and `operatorWindowUnchanged` as true, followed by `safe-shutdown-confirmed`. No PowerShell exit code or independent work-area measurement after process exit was supplied. This is not a complete `SC-006` PASS.
+
+These values show a mismatch between the accepted AppBar rectangle and the subsequent Win32 window rectangle. They do not identify when or why that mismatch began. In particular, the 16 px width and 8 px height differences have not been attributed to a frame border, DPI conversion, `showInactive()`, AppBar work-area processing, or any other cause.
+
+### Diagnostic instrumentation and remaining status
+
+The isolated PoC now emits timestamped `position-diagnostic` JSONL entries around `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS`, `SetWindowPos`, `showInactive()`, and `ABM_REMOVE`; it also records AppBar `show`/`move`/`resize` events and existing hooked Windows messages. Each sample separately captures the work area, the AppBar and operator HWND `GetWindowRect`, Electron `getBounds()` / `getContentBounds()` / visibility, and (when available) DWM extended-frame bounds. A single 250 ms post-show sample is read-only. Measurement failures are recorded as unavailable; no value is normalized, interpreted as a cause, or used to move/re-register the window. No correction loop was added. The JSONL logger remains non-throwing so a geometry sample or log-write failure does not intentionally bypass removal or the shutdown guard.
+
+The measurement APIs may describe different coordinate spaces and frame boundaries. Windows documents `GetWindowRect` as DPI-virtualized and potentially inclusive of invisible resize borders; DWM extended-frame bounds exclude those borders and are not DPI adjusted. Electron geometry is recorded separately without conversion. Compare the values only after accounting for those distinctions.
+
+The human-only, 90 px diagnostic sequence is documented in [position-diagnostics.md](position-diagnostics.md). It performs one registration and explicit verified removal, then exits safely; it does not include 34 px changes, external maximized-app checks, or automatic repositioning. All new Windows runtime measurements remain `MANUAL_PENDING`; AppBar placement cause remains undetermined. Codex performed static checks only.
