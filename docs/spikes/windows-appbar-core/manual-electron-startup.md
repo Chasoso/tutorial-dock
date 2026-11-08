@@ -2,7 +2,7 @@
 
 This procedure lets a person run a minimal Electron app from a normal Windows 11 PowerShell or VS Code terminal. It separates Electron startup (Test A) from Koffi loading and a read-only monitor query (Test B). It does not test Windows AppBar behavior.
 
-The diagnostic apps are isolated under `experiments/windows-appbar-core/startup-diagnostic/`. They reuse the existing Electron `45.2.3` and Koffi `3.3.7` installations. Their package manifests declare no dependencies. Do not run `npm install`, `npm ci`, `npm start`, or an Electron installer for these checks: invoke the existing `electron.exe` directly. If the binary or pinned packages are missing or the versions do not match, stop and report that state; do not download replacements.
+The diagnostic apps are isolated under `experiments/windows-appbar-core/startup-diagnostic/`. The parent experiment's existing `package.json` already pins Electron `45.2.3` and Koffi `3.3.7` for the PoC; this addition reuses those installed packages and does not modify that manifest or lockfile. The two diagnostic package manifests declare no dependencies. Do not run `npm install`, `npm ci`, `npm start`, or an Electron installer for these checks: invoke the existing `electron.exe` directly. If the binary or pinned packages are missing or the versions do not match, stop and report that state; do not download replacements.
 
 ## Safety and prerequisites
 
@@ -83,7 +83,7 @@ Write-Output "stderr: $stderr"
 
 The JSONL file `logs/startup-test-b-<timestamp>.jsonl` separates Koffi load, Win32 binding, and monitor-query events. Successful query entries contain monitor bounds, work-area bounds, and primary-monitor status; the query is repeated immediately before normal window close for comparison. A failed Koffi load or read-only API call is logged separately where possible; the window remains available for inspection and normal close. Close it with **Close test window** and record the command exit code.
 
-Treat Koffi loading as `PASS` only when the `koffi-loaded` event is present and reports version `3.3.7`. Treat the Win32 read as `PASS` only when `readonly-monitor-measurement` is present for both phases and the values are captured. Treat Test B normal close as `PASS` only after normal UI close, command return with exit code 0, and `process-exit` code 0. If the two work-area readings differ, record the values and any observed external display changes; do not assume the diagnostic caused or resolved a system change.
+Treat Koffi loading/version as `PASS` only when `koffi-loaded` is present and the separate `koffi-runtime-version` event reports `3.3.7`. Treat the Win32 read as `PASS` only when `readonly-monitor-measurement` is present for both phases and the values are captured. Treat Test B normal close as `PASS` only after normal UI close, command return with exit code 0, and `process-exit` code 0. If the two work-area readings differ, record the values and any observed external display changes; do not assume the diagnostic caused or resolved a system change.
 
 ## If a problem occurs
 
