@@ -108,6 +108,7 @@ let requestedAppBarCreationBounds;
 let lastSetWindowPosRequest = null;
 let logFile;
 let logFileFailure = null;
+let pendingReleaseNotificationFailure = null;
 let dwmGetWindowAttribute;
 let dwmBindingFailure = null;
 const deferredPositionDiagnostics = createBoundedDiagnosticQueue(DEFERRED_DIAGNOSTIC_QUEUE_LIMIT);
@@ -185,21 +186,57 @@ function record(event, details = {}) {
   return entry;
 }
 
-function announceState() {
+function announceState({ recordErrors = true } = {}) {
   try {
     if (operatorWindow && !operatorWindow.isDestroyed()) {
       operatorWindow.webContents.send('spike:state', stateSnapshot());
     }
+    return null;
   } catch (error) {
-    record('state-notification-failed', { message: error.message });
+    if (recordErrors) record('state-notification-failed', { message: error.message });
+    return { message: error.message };
   }
 }
 
-function transition(nextState, details = {}) {
+function transition(nextState, details = {}, { deferRecord = false } = {}) {
   const previous = appBarState;
   appBarState = nextState;
-  record('appbar-state', { previous, state: nextState, ...details });
-  announceState();
+  const stateChange = {
+    previous,
+    state: nextState,
+    ...details,
+    ...(deferRecord ? { transitionObservedAt: new Date().toISOString() } : {}),
+  };
+  if (!deferRecord) record('appbar-state', stateChange);
+  const notificationFailure = announceState({ recordErrors: !deferRecord });
+  if (deferRecord && notificationFailure) {
+    stateChange.stateNotificationFailure = notificationFailure.message;
+  }
+  return deferRecord ? stateChange : null;
+}
+
+function recordDeferredStateChange(stateChange) {
+  if (!stateChange) return;
+  record('appbar-state', {
+    ...stateChange,
+    recordMode: 'deferred-until-release-checks-complete',
+  });
+}
+
+function deferReleaseStateNotificationFailure(error, source) {
+  if (!error) return;
+  pendingReleaseNotificationFailure = {
+    source,
+    failureCount: Math.min((pendingReleaseNotificationFailure?.failureCount ?? 0) + 1, Number.MAX_SAFE_INTEGER),
+    latestMessage: error.message,
+    latestObservedAt: new Date().toISOString(),
+  };
+}
+
+function recordPendingReleaseStateNotificationFailure() {
+  if (!pendingReleaseNotificationFailure) return;
+  record('state-notification-failed', pendingReleaseNotificationFailure);
+  pendingReleaseNotificationFailure = null;
 }
 
 function startOperation(name, action, allowDuringShutdown = false) {
@@ -213,7 +250,9 @@ function startOperation(name, action, allowDuringShutdown = false) {
   operationName = name;
   const promise = Promise.resolve().then(action);
   operationPromise = promise;
-  announceState();
+  const isReleaseOperation = name === 'remove' || name === 'remove-for-shutdown';
+  const notificationFailure = announceState({ recordErrors: !isReleaseOperation });
+  if (isReleaseOperation) deferReleaseStateNotificationFailure(notificationFailure, `start-operation:${name}`);
   const finish = () => {
     if (operationPromise !== promise) return;
     operationPromise = null;
@@ -509,7 +548,13 @@ function deferredDiagnosticCaptureAllowed() {
 function flushDeferredPositionDiagnostics() {
   if (!deferredDiagnosticCaptureAllowed()) {
     const discarded = deferredPositionDiagnostics.clear();
-    if (discarded.queuedLabelCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop) {
+    if (deferredDiagnosticsStopped || shutdownRequested || appBarState === STATE.REMOVING) {
+      if (stoppedDiagnosticSummary) {
+        stoppedDiagnosticSummary.queuedLabelCount += discarded.queuedLabelCount;
+        stoppedDiagnosticSummary.queuedEventCount += discarded.queuedEventCount;
+        stoppedDiagnosticSummary.overflowDroppedCount += discarded.droppedCount;
+      }
+    } else if (discarded.queuedLabelCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop) {
       record('position-diagnostic-queue-discarded', {
         reason: 'capture-unavailable-or-lifecycle-ending',
         queuedLabelCount: discarded.queuedLabelCount,
@@ -567,33 +612,42 @@ function stopDeferredPositionDiagnostics(reason) {
   deferredDiagnosticTimer = null;
   showSettledDiagnosticTimer = null;
   const discarded = deferredPositionDiagnostics.clear();
-  if (discarded.queuedLabelCount || discarded.droppedCount || diagnosticEventsSuppressedAfterStop || diagnosticCallbackFailureCount) {
-    stoppedDiagnosticSummary = {
-      reason,
-      queuedLabelCount: discarded.queuedLabelCount,
-      queuedEventCount: discarded.queuedEventCount,
-      overflowDroppedCount: discarded.droppedCount,
-      suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
-      enqueueFailureCount: diagnosticCallbackFailureCount,
-    };
-  }
+  stoppedDiagnosticSummary = {
+    reason,
+    queuedLabelCount: discarded.queuedLabelCount,
+    queuedEventCount: discarded.queuedEventCount,
+    overflowDroppedCount: discarded.droppedCount,
+    suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
+    enqueueFailureCount: diagnosticCallbackFailureCount,
+  };
   diagnosticEventsSuppressedAfterStop = 0;
   diagnosticCallbackFailureCount = 0;
 }
 
 function recordStoppedDiagnosticSummary() {
-  if (!stoppedDiagnosticSummary) return;
-  record('position-diagnostic-queue-stopped', {
-    ...stoppedDiagnosticSummary,
+  const pendingSummary = stoppedDiagnosticSummary ?? {
+    reason: 'events-suppressed-after-diagnostics-stopped',
+    queuedLabelCount: 0,
+    queuedEventCount: 0,
+    overflowDroppedCount: 0,
+    suppressedAfterStopCount: 0,
+    enqueueFailureCount: 0,
+  };
+  const summary = {
+    ...pendingSummary,
     suppressedAfterStopCount: Math.min(
-      stoppedDiagnosticSummary.suppressedAfterStopCount + diagnosticEventsSuppressedAfterStop,
+      pendingSummary.suppressedAfterStopCount + diagnosticEventsSuppressedAfterStop,
       Number.MAX_SAFE_INTEGER,
     ),
     enqueueFailureCount: Math.min(
-      stoppedDiagnosticSummary.enqueueFailureCount + diagnosticCallbackFailureCount,
+      pendingSummary.enqueueFailureCount + diagnosticCallbackFailureCount,
       Number.MAX_SAFE_INTEGER,
     ),
-  });
+  };
+  if (summary.queuedLabelCount || summary.queuedEventCount || summary.overflowDroppedCount ||
+      summary.suppressedAfterStopCount || summary.enqueueFailureCount) {
+    record('position-diagnostic-queue-stopped', summary);
+  }
   stoppedDiagnosticSummary = null;
   diagnosticEventsSuppressedAfterStop = 0;
   diagnosticCallbackFailureCount = 0;
@@ -620,12 +674,13 @@ function taskbarBounds() {
   return nativeWindowRect(taskbar, 'taskbar');
 }
 
-function currentSnapshot(label) {
+function currentSnapshot(label, { recordMeasurement = true } = {}) {
   const monitor = monitorInfo();
   const appBarRect = nativeWindowRect(appBarHandle, 'AppBar window');
   const operatorRect = nativeWindowRect(operatorHandle, 'operator window');
   const snapshot = {
     label,
+    measurementCapturedAt: new Date().toISOString(),
     appBarState,
     monitorCount,
     dpi: windowDpi,
@@ -642,7 +697,7 @@ function currentSnapshot(label) {
       ? sameRect(operatorRect, operatorWindowBaseline)
       : null,
   };
-  record('measurement', snapshot);
+  if (recordMeasurement) record('measurement', snapshot);
   return snapshot;
 }
 
@@ -988,41 +1043,82 @@ async function removeAppBarInternal() {
   }
 
   stopDeferredPositionDiagnostics('appbar-removal-started');
-  transition(STATE.REMOVING);
+  const removingStateChange = transition(STATE.REMOVING, {}, { deferRecord: true });
   let removeResult;
+  let removeObservedAt;
   try {
     removeResult = SHAppBarMessage(APPBAR.REMOVE, appBarData());
+    removeObservedAt = new Date().toISOString();
   } catch (error) {
-    transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', message: error.message });
-    record('ABM_REMOVE-error', { message: error.message });
+    const unknownStateChange = transition(
+      STATE.UNKNOWN,
+      { failedOperation: 'ABM_REMOVE', message: error.message },
+      { deferRecord: true },
+    );
+    recordDeferredStateChange(removingStateChange);
+    record('ABM_REMOVE-error', { message: error.message, observedAt: new Date().toISOString() });
+    recordDeferredStateChange(unknownStateChange);
+    recordPendingReleaseStateNotificationFailure();
     recordStoppedDiagnosticSummary();
     return { ok: false, state: appBarState, message: `ABM_REMOVE threw: ${error.message}` };
   }
   if (removeResult === 0n || removeResult === 0) {
-    record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
-    transition(STATE.UNKNOWN, { failedOperation: 'ABM_REMOVE', returnValue: String(removeResult) });
+    const unknownStateChange = transition(
+      STATE.UNKNOWN,
+      { failedOperation: 'ABM_REMOVE', returnValue: String(removeResult) },
+      { deferRecord: true },
+    );
+    recordDeferredStateChange(removingStateChange);
+    record('ABM_REMOVE', {
+      hwndRole: 'appbar-window',
+      returnValue: String(removeResult),
+      observedAt: removeObservedAt,
+    });
+    recordDeferredStateChange(unknownStateChange);
+    recordPendingReleaseStateNotificationFailure();
     recordStoppedDiagnosticSummary();
     return { ok: false, state: appBarState, message: 'ABM_REMOVE returned FALSE; release remains unconfirmed' };
   }
 
+  const hideErrors = [];
   try {
     appBarWindow.setAlwaysOnTop(false);
   } catch (error) {
-    record('appbar-hide-error', { step: 'setAlwaysOnTop(false)', message: error.message });
+    hideErrors.push({
+      step: 'setAlwaysOnTop(false)',
+      message: error.message,
+      observedAt: new Date().toISOString(),
+    });
   }
   try {
     appBarWindow.hide();
   } catch (error) {
-    record('appbar-hide-error', { step: 'hide', message: error.message });
+    hideErrors.push({ step: 'hide', message: error.message, observedAt: new Date().toISOString() });
   }
 
   await new Promise((resolve) => setTimeout(resolve, 350));
   let after;
   try {
-    after = currentSnapshot('after-removal');
+    after = currentSnapshot('after-removal', { recordMeasurement: false });
   } catch (error) {
-    record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
-    transition(STATE.UNKNOWN, { failedOperation: 'release-verification', message: error.message });
+    const unknownStateChange = transition(
+      STATE.UNKNOWN,
+      { failedOperation: 'release-verification', message: error.message },
+      { deferRecord: true },
+    );
+    recordDeferredStateChange(removingStateChange);
+    record('ABM_REMOVE', {
+      hwndRole: 'appbar-window',
+      returnValue: String(removeResult),
+      observedAt: removeObservedAt,
+    });
+    for (const hideError of hideErrors) record('appbar-hide-error', hideError);
+    record('release-verification-error', {
+      message: error.message,
+      observedAt: new Date().toISOString(),
+    });
+    recordDeferredStateChange(unknownStateChange);
+    recordPendingReleaseStateNotificationFailure();
     recordStoppedDiagnosticSummary();
     return {
       ok: false,
@@ -1034,8 +1130,39 @@ async function removeAppBarInternal() {
   const workAreaRestored = sameRect(after.workArea, reservationBaselineWorkArea);
   const appBarHidden = !appBarWindow.isVisible();
   const operatorWindowUnchanged = sameRect(after.operatorWindow, operatorWindowBaseline);
-  record('ABM_REMOVE', { hwndRole: 'appbar-window', returnValue: String(removeResult) });
+  let finalStateChange;
+  if (!workAreaRestored || !appBarHidden || !operatorWindowUnchanged) {
+    finalStateChange = transition(
+      STATE.UNKNOWN,
+      {
+        failedOperation: 'release-verification',
+        workAreaRestored,
+        appBarHidden,
+        operatorWindowUnchanged,
+      },
+      { deferRecord: true },
+    );
+  } else {
+    currentHeight = null;
+    finalStateChange = transition(
+      STATE.RELEASED,
+      { workAreaRestored, appBarHidden, operatorWindowUnchanged },
+      { deferRecord: true },
+    );
+  }
+
+  // Complete release, hide, measurement, and state checks before writing these
+  // JSONL entries. observedAt fields retain when each fact was actually captured.
+  recordDeferredStateChange(removingStateChange);
+  record('ABM_REMOVE', {
+    hwndRole: 'appbar-window',
+    returnValue: String(removeResult),
+    observedAt: removeObservedAt,
+  });
+  for (const hideError of hideErrors) record('appbar-hide-error', hideError);
+  record('measurement', after);
   record('release-verification', {
+    verifiedAt: new Date().toISOString(),
     apiAccepted: true,
     reservationBaselineWorkArea,
     finalWorkArea: after.workArea,
@@ -1043,15 +1170,11 @@ async function removeAppBarInternal() {
     appBarHidden,
     operatorWindowUnchanged,
   });
+  recordDeferredStateChange(finalStateChange);
+  recordPendingReleaseStateNotificationFailure();
+  recordStoppedDiagnosticSummary();
 
   if (!workAreaRestored || !appBarHidden || !operatorWindowUnchanged) {
-    transition(STATE.UNKNOWN, {
-      failedOperation: 'release-verification',
-      workAreaRestored,
-      appBarHidden,
-      operatorWindowUnchanged,
-    });
-    recordStoppedDiagnosticSummary();
     return {
       ok: false,
       state: appBarState,
@@ -1060,9 +1183,6 @@ async function removeAppBarInternal() {
     };
   }
 
-  currentHeight = null;
-  transition(STATE.RELEASED, { workAreaRestored, appBarHidden, operatorWindowUnchanged });
-  recordStoppedDiagnosticSummary();
   return { ok: true, state: appBarState, snapshot: after };
 }
 
@@ -1084,7 +1204,10 @@ async function requestSafeShutdown(reason) {
   if (shutdownPromise) return shutdownPromise;
   shutdownRequested = true;
   stopDeferredPositionDiagnostics(`safe-shutdown-started:${reason}`);
-  announceState();
+  deferReleaseStateNotificationFailure(
+    announceState({ recordErrors: false }),
+    `safe-shutdown-started:${reason}`,
+  );
 
   const task = (async () => {
     const pending = operationPromise;
@@ -1120,6 +1243,7 @@ async function requestSafeShutdown(reason) {
     }
 
     recordStoppedDiagnosticSummary();
+    recordPendingReleaseStateNotificationFailure();
     record('safe-shutdown-confirmed', { reason, state: appBarState });
     allowAppBarWindowClose = true;
     if (appBarWindow && !appBarWindow.isDestroyed()) appBarWindow.close();
