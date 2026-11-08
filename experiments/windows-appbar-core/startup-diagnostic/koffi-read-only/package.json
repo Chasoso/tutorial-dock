@@ -1,0 +1,6 @@
+{
+  "name": "tutorial-dock-electron-startup-test-b",
+  "version": "0.0.0",
+  "private": true,
+  "main": "main.cjs"
+}
