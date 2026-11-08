@@ -202,3 +202,37 @@ AppBar hardware verification **cannot proceed yet** because the PoC does not sta
 - [Microsoft `ABM_REMOVE`](https://learn.microsoft.com/en-us/windows/win32/shell/abm-remove)
 - [Microsoft `MONITORINFO.rcWork`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-monitorinfo)
 - [Koffi](https://koffi.dev/) (experiment-only FFI option)
+
+## Follow-up: bounded Electron startup isolation (2026-11-08)
+
+This follow-up distinguishes Electron's basic startup from the existing PoC initialization. It uses the already retrieved and checksum-verified Electron `v45.2.3`; it did not download or reinstall any dependency.
+
+### Test A: Electron without Koffi or Win32 calls
+
+A temporary diagnostic app was prepared under `startup-diagnostic/electron-only/`. It required only Electron and Node.js built-ins, created one window with inline HTML, and contained no Koffi import, Win32 call, AppBar operation, or external service. Its JavaScript passed `node --check`. The temporary diagnostic source was removed after the attempt; the existing PoC and production application were not changed.
+
+The existing `electron.exe` was invoked directly once with Electron logging directed to stderr. The attempt did not produce an observable window in the Codex desktop inventory, and no Electron process remained afterward. The captured console file was empty (0 bytes), the app's JSONL lifecycle log was not created, and PowerShell did not provide a child exit code. The wrapper command's exit status of 0 is not evidence that Electron started successfully. No usable crash record or standard error was captured.
+
+Therefore, GUI display and normal window close are **not confirmed**. The earlier separate PoC run's `0x80000003` (`EXCEPTION_BREAKPOINT`) remains recorded above; this minimal attempt yielded no output with which to reproduce or rule out that exception. The cause cannot be assigned to Electron itself, the diagnostic harness, or the surrounding execution environment.
+
+### Test B: Koffi
+
+`NOT_RUN`. Test A did not confirm a visible, functioning Electron window, so the conditional Koffi test was not started. No Koffi import or Win32 API call was executed by this follow-up.
+
+### Windows work-area state and AppBar criteria
+
+After the attempt, a separate read-only `GetMonitorInfo` query reported monitor bounds `(0,0)-(1920,1080)` and work area `(0,0)-(1920,1032)`, matching the previously recorded baseline. No AppBar API or other work-area-changing operation was invoked. This confirms the measured work area remained at baseline; it does not validate AppBar behavior.
+
+| Check | Result | Evidence / limitation |
+|---|---|---|
+| Electron 45.2.3 basic startup and visible one-window UI | `INCONCLUSIVE` | One launch was attempted, but it produced no visible window and no usable child exit/crash result; unable to distinguish startup failure from execution/capture limitation. |
+| Normal close of the minimal app | `NOT_RUN` | No functioning window was confirmed. |
+| Koffi load and read-only Win32 query in Electron | `NOT_RUN` | Conditional on Test A success; not attempted. |
+| Work area unchanged | `PASS` | Read-only post-attempt measurement matched baseline `(0,0)-(1920,1032)`; no AppBar API was called. |
+| AppBar registration, work-area reservation, maximized-window overlap, height update, and release | `NOT_RUN` | No AppBar operation was invoked. Existing runtime acceptance criteria remain unpassed. |
+
+### Conclusion and resume condition
+
+Classification: **4. Environment constraints prevented isolation.** The available execution did not expose a window, a child exit code, stderr, or crash information. This is insufficient evidence to conclude that Electron's basic startup fails, and Test B cannot be meaningfully run. The previous `EXCEPTION_BREAKPOINT` remains an unresolved observation rather than a confirmed cause.
+
+Do not continue launching Electron in this environment as part of this bounded investigation. Resume in an interactive Windows environment where the operator can verify the window and capture the actual child exit/output or an accessible crash record. First repeat only Test A using the existing verified binary; run Test B only after A visibly succeeds and closes normally. Keep all AppBar runtime criteria `NOT_RUN` until a later, separately authorized experiment.
