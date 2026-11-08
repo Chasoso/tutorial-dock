@@ -7,17 +7,18 @@
       content="default-src 'self'; style-src 'self'; script-src 'self'"
     >
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Windows AppBar Spike</title>
+    <title>AppBar Spike Operator</title>
     <link rel="stylesheet" href="style.css">
     <script defer src="renderer.js"></script>
   </head>
   <body>
     <header>
-      <strong>Windows AppBar Core Spike</strong>
-      <span class="warning">Experiment only — Windows work area may change temporarily</span>
-      <button id="close" class="close" type="button">Close safely</button>
+      <strong>Windows AppBar Spike — Operator</strong>
+      <span class="warning">Separate control window — experiment only</span>
+      <button id="close" class="close" type="button">Safe exit</button>
     </header>
     <main>
+      <p id="appbar-state" role="status">AppBar state: unregistered</p>
       <p id="status">Measuring the current display. No reservation has been requested.</p>
       <section class="controls" aria-label="AppBar experiment controls">
         <button id="measure" type="button">Measure work area</button>
@@ -26,7 +27,7 @@
         <button id="large" type="button" disabled>Restore 90 px</button>
         <button id="remove" type="button" disabled>Remove and verify</button>
       </section>
-      <p class="note">Run only on one monitor at 96 DPI. Stop if release does not restore the logged baseline. Do not force-close.</p>
+      <p class="note">The AppBar strip is a separate window and is the only HWND registered. Run only on one monitor at 96 DPI. Stop if release is unconfirmed; do not force-close.</p>
       <pre id="latest" aria-live="polite">Waiting for the initial measurement…</pre>
       <details>
         <summary>Event log</summary>

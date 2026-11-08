@@ -98,6 +98,58 @@ A new authorized environment with official Electron binary access is required to
 
 The key hypothesis cannot yet be judged. The read-only Node/Koffi checks establish that this x64 Node process can load the FFI package and query monitor/work-area APIs. They do not show that Electron can register its window, that Windows work area changes, or that maximized applications avoid a reserved region. Conclusion: **environment restriction prevented a determination**. All production acceptance criteria remain unpassed.
 
+## Follow-up: isolated operator window and read-only Electron investigation
+
+This follow-up addresses the review risk that shrinking the AppBar window to 90 px or 34 px could also hide the controls needed to release it. It does not register an AppBar, change the Windows work area, launch Electron, or retrieve an Electron binary.
+
+### PoC window separation and release guard
+
+The PoC now creates two `BrowserWindow`s:
+
+- **AppBar window** (`appbar.html` / `appbar.css`): a minimal, non-focusable strip. Its HWND alone is used in `APPBARDATA`, monitor selection, `SetWindowPos`, and AppBar message hooks. It has no experiment controls.
+- **Operator window** (`index.html` / `renderer.js`): retains measurement, registration, height-change, removal, log, and safe-exit controls. Its HWND is measured separately and is never passed to an AppBar call or moved/resized by the reservation code.
+
+The main process serializes measure/register/update/remove operations and exposes the explicit states `unregistered`, `registering`, `registered`, `updating`, `removing`, `released`, and `release-unconfirmed`. The work-area and operator-window baselines are captured immediately before `ABM_NEW`, avoiding use of an earlier startup measurement as the release baseline. A successful `ABM_REMOVE` return alone is insufficient: release is recorded only after `rcWork` exactly matches that baseline, the AppBar window is hidden, and the operator-window bounds still match. Otherwise the status remains unconfirmed and the operator window stays available for human inspection.
+
+Close requests from either window, the safe-exit control, and `before-quit` go through the same guarded shutdown path. The AppBar window is not allowed to close until release is confirmed. If release cannot be confirmed, an error dialog is shown and both windows remain open. File, renderer, or console logging errors are caught separately so they do not interrupt removal. This guard covers normal PoC shutdown only; it does not promise OS recovery after process crash or forced termination. Keeping a window open is not itself proof that the Windows reservation has been restored.
+
+### AppBar notification limitation
+
+The AppBar callback and `WM_WINDOWPOSCHANGED` hooks remain **log-only**. `ABN_POSCHANGED` does not trigger a new `ABM_QUERYPOS`/`ABM_SETPOS` sequence or relocation. The PoC does not send `ABM_WINDOWPOSCHANGED` after repositioning. Correct alignment between the window rectangle and reserved rectangle, shell/taskbar-induced repositioning, and notification-driven recovery therefore remain unverified. The PoC must not be described as a complete AppBar implementation.
+
+### Read-only Electron acquisition investigation
+
+No installation, download, alternate mirror, network probe, or Electron launch was performed during this follow-up.
+
+| Check | Observation |
+|---|---|
+| Installed package metadata | `node_modules/electron/package.json` exists and reports `45.2.3`; its `install.js` and `@electron/get` `5.1.0` are present. Package metadata does not include the executable. |
+| Local executable | `node_modules/electron/dist/electron.exe` and `node_modules/electron/path.txt` are absent. `electron` / `electron.exe` were not found on `PATH`. |
+| Electron download cache | The default cache location was derived offline from the installed `@electron/get`/`env-paths` code and is absent or empty. No existing standalone Electron runtime was found in the inspected locations. |
+| Download configuration | No project/user/global `.npmrc` with relevant Electron mirror/cache settings was found in the inspected standard locations. `ELECTRON_OVERRIDE_DIST_PATH`, `electron_config_cache`, custom Electron mirror/path variables, proxy environment variables, and `ELECTRON_GET_USE_PROXY` were unset. HKCU Internet Settings showed `ProxyEnable=0` and no `ProxyServer`/`AutoConfigURL`. |
+| WinHTTP proxy | **Unknown.** The available `netsh` did not recognize the read-only `winhttp show proxy` command, so no conclusion is drawn about WinHTTP proxy configuration. |
+| npm cache/log details | Standard npm debug-log locations inspected were absent/empty. An npm cache configuration query was rejected by the environment as protected; its internal error path was not inspected. No lower-level log proving the failed network stage was available. |
+| Prior error | The earlier Electron launcher attempt reported `TypeError: fetch failed`; the single unchanged retry was already used. A later escalated retry was rejected by automatic approval review under the bounded-retry rule. No retry or workaround was attempted here. |
+
+Offline inspection of the installed package shows `electron/install.js` calls `@electron/get` for `win32`, `x64`, version `45.2.3`, with package checksums enabled by default. The configured default release artifact is `electron-45.2.3-win32-x64.zip` at `https://github.com/electron/electron/releases/download/45.2.3/electron-45.2.3-win32-x64.zip`. This is the package's intended URL, not evidence that the host was reachable or that a transfer began.
+
+The cause of `TypeError: fetch failed` remains **undetermined**. DNS resolution, HTTPS connectivity, TLS validation, network policy, system/WinHTTP proxy behavior, and a transient GitHub-side failure were not discriminated. A corrupt Electron cache is not supported by the observed state because the expected cache and executable are absent, but the failed request's exact point of failure is unknown. Local execute permission was not tested because there is no executable to launch.
+
+**Next human approval needed:** authorize one bounded retrieval of the pinned official Electron `45.2.3` Windows x64 artifact through the normal package-install path in this isolated experiment directory, after confirming that the environment permits access to the URL above; alternatively, provide a trusted copy of that exact official artifact and its verified checksum. Do not use another URL, mirror, elevated install, or retry before that authorization. Once the binary is available, run the existing PoC only after reviewing the release guard and recording the current display/work-area state.
+
+### Follow-up verification status
+
+Static checks performed for this change: JavaScript syntax checks for `main.cjs`, `preload.cjs`, and `renderer.js`; JSON parsing of `package-lock.json`; and `git diff --check`. They do not exercise Electron IPC, Win32 calls, or OS behavior. The PoC code uses only the AppBar window handle for AppBar operations and compares the operator-window bounds at release; runtime confirmation awaits a permitted Electron launch.
+
+| Check | Related criterion | Follow-up result |
+|---|---|---|
+| Separate control and AppBar windows; correct HWND references | TS-01 / safety prerequisite | Static inspection only; runtime `NOT_RUN` |
+| Work-area reservation / maximized-window behavior | SC-002a / SC-002b | `NOT_RUN`; no AppBar API call or Electron launch |
+| Height change and separate operator-window bounds | SC-003 | `NOT_RUN`; no AppBar API call or Electron launch |
+| Release and normal shutdown verification | SC-006 | `NOT_RUN`; no AppBar API call or Electron launch |
+| `ABN_POSCHANGED` relocation and `ABM_WINDOWPOSCHANGED` notification | Spike follow-up | Not implemented and `NOT_RUN`; explicitly out of the current PoC behavior |
+| Electron binary retrieval failure cause | Environment investigation | Partially investigated; exact network failure stage remains unknown |
+
 ## Technical references
 
 - [Electron `BrowserWindow` API](https://www.electronjs.org/docs/latest/api/browser-window/) (`getNativeWindowHandle`, `hookWindowMessage`)
