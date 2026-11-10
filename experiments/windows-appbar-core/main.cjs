@@ -1,3 +1,12 @@
+const {
+  SWP_NOACTIVATE,
+  SWP_NOZORDER,
+  SWP_SHOWWINDOW,
+  resolvePositionVariant,
+} = require('./position-variant.cjs');
+const positionVariantEnv = process.env.TUTORIAL_DOCK_SPIKE_POSITION_VARIANT;
+const positionVariant = resolvePositionVariant(positionVariantEnv);
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -13,9 +22,9 @@ const APPBAR = Object.freeze({
   WINDOWPOSCHANGED: 0x00000009,
   TOP: 1,
   MONITOR_DEFAULTTOPRIMARY: 1,
-  SWP_NOZORDER: 0x0004,
-  SWP_NOACTIVATE: 0x0010,
-  SWP_SHOWWINDOW: 0x0040,
+  SWP_NOZORDER,
+  SWP_NOACTIVATE,
+  SWP_SHOWWINDOW,
 });
 const ABN_POSCHANGED = 0x00000001;
 const WM_WINDOWPOSCHANGED = 0x0047;
@@ -396,6 +405,10 @@ function positionDiagnosticSnapshot(label, details = {}, capture = {}) {
     const measurementCapturedAt = new Date().toISOString();
     record('position-diagnostic', {
       label,
+      positionVariant: positionVariant.name,
+      setWindowPosFlags: positionVariant.flags,
+      setWindowPosFlagsHex: positionVariant.flagsHex,
+      setWindowPosFlagNames: positionVariant.flagNames,
       ...capture,
       captureMode: capture.captureMode ?? 'synchronous',
       measurementCapturedAt,
@@ -854,7 +867,10 @@ function setReservationHeightInternal(height) {
       y: acceptedRect.top,
       width: acceptedRect.right - acceptedRect.left,
       height: acceptedRect.bottom - acceptedRect.top,
-      flags: APPBAR.SWP_NOZORDER | APPBAR.SWP_NOACTIVATE | APPBAR.SWP_SHOWWINDOW,
+      positionVariant: positionVariant.name,
+      flags: positionVariant.flags,
+      flagsHex: positionVariant.flagsHex,
+      flagNames: positionVariant.flagNames,
       acceptedRect,
     };
     lastSetWindowPosRequest = setWindowPosRequest;
@@ -977,6 +993,10 @@ async function registerAppBarInternal() {
       workArea: reservationBaselineWorkArea,
       operatorWindow: operatorWindowBaseline,
       source: 'captured immediately before ABM_NEW',
+      positionVariant: positionVariant.name,
+      setWindowPosFlags: positionVariant.flags,
+      setWindowPosFlagsHex: positionVariant.flagsHex,
+      setWindowPosFlagNames: positionVariant.flagNames,
     });
 
     callbackMessage = RegisterWindowMessageW('TutorialDock.AppBar.Callback');
@@ -1002,7 +1022,15 @@ async function registerAppBarInternal() {
       });
       throw error;
     }
-    record('ABM_NEW', { hwndRole: 'appbar-window', returnValue: String(result), callbackMessage });
+    record('ABM_NEW', {
+      hwndRole: 'appbar-window',
+      returnValue: String(result),
+      callbackMessage,
+      positionVariant: positionVariant.name,
+      setWindowPosFlags: positionVariant.flags,
+      setWindowPosFlagsHex: positionVariant.flagsHex,
+      setWindowPosFlagNames: positionVariant.flagNames,
+    });
     positionDiagnosticSnapshot('after-appbar-new', {
       operation: 'ABM_NEW',
       returnValue: String(result),
@@ -1331,6 +1359,13 @@ function createWindows() {
   windowDpi = GetDpiForWindow(appBarHandle);
   logFile = path.join(__dirname, 'logs', `session-${new Date().toISOString().replaceAll(':', '-')}.jsonl`);
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  record('position-variant-selected', {
+    positionVariant: positionVariant.name,
+    setWindowPosFlags: positionVariant.flags,
+    setWindowPosFlagsHex: positionVariant.flagsHex,
+    setWindowPosFlagNames: positionVariant.flagNames,
+    selectionSource: positionVariantEnv === undefined ? 'default' : 'environment',
+  });
   hookAppBarWindowGeometryEvents();
 
   operatorWindow.on('close', (event) => {
@@ -1356,6 +1391,10 @@ function createWindows() {
       arch: process.arch,
       monitorCount,
       dpi: windowDpi,
+      positionVariant: positionVariant.name,
+      setWindowPosFlags: positionVariant.flags,
+      setWindowPosFlagsHex: positionVariant.flagsHex,
+      setWindowPosFlagNames: positionVariant.flagNames,
       appBarWindowCreated: Boolean(appBarWindow && !appBarWindow.isDestroyed()),
       operatorWindowCreated: Boolean(operatorWindow && !operatorWindow.isDestroyed()),
     });
