@@ -267,6 +267,42 @@ Test A, Test B, and the existing AppBar PoC no longer send diagnostic events to 
 
 The [manual procedure](manual-electron-startup.md) now uses an interactive direct launch with no stdout/stderr redirection, records the observed Test A/B outcomes, and provides the exact Test B rerun command. Test B GUI display and normal close remain for human re-verification. Work-area reservation, maximized-window avoidance, height changes, and AppBar release remain `NOT_RUN`.
 
+## Human Windows desktop run after the EPIPE logging change (2026-11-08)
+
+The following results were supplied from a normal Windows desktop run of the JSONL-only diagnostic code. Codex did not launch Electron or call Windows APIs during this documentation update.
+
+### Test A: Electron only
+
+The human confirmed that the Electron window appeared and closed normally. This run used the source before the EPIPE logging change. It remains evidence for that earlier source revision; the current Test A source has not been rerun on the Windows desktop.
+
+### Test B: Electron, Koffi, and read-only Win32 measurement
+
+With the EPIPE logging change present, the human confirmed Electron `45.2.3`, Node.js `24.22.2`, Koffi `3.3.7`, successful Koffi loading, successful binding and invocation of `MonitorFromWindow` and `GetMonitorInfoW`, visible UI, normal UI-driven close, and JSONL `process-exit` with `exitCode: 0`. EPIPE did not recur in this run.
+
+The recorded monitor was `(0,0)-(1920,1080)`, with primary monitor `true`. The Windows work area was `(0,0)-(1920,1032)` immediately after window creation and immediately before normal exit. These were read-only measurements; no AppBar registration or work-area reservation was attempted.
+
+Chromium displayed an access-denied warning while creating its disk cache. The UI still appeared and closed normally in this run. The warning's root cause is unknown; this observation does not establish that the underlying issue is fixed.
+
+| Check | Result | Evidence / limitation |
+|---|---|---|
+| Test A: Electron window visible and normal close | `PASS` for the earlier source | Human confirmation predates the EPIPE logging change; current Test A source has not been rerun. |
+| Test B: Electron 45.2.3 / Node.js 24.22.2 | `PASS` | Human-run JSONL and supplied result. |
+| Test B: Koffi 3.3.7 load | `PASS` | Human-run JSONL recorded successful load and runtime version. |
+| Test B: `MonitorFromWindow` and `GetMonitorInfoW` | `PASS` | Human-run JSONL recorded binding and work-area measurement. |
+| Test B: visible UI and normal close | `PASS` | Human confirmed UI-driven close; JSONL recorded `process-exit`, `exitCode: 0`. |
+| Test B: EPIPE recurrence | Not observed in this run | One human run; the original broken-pipe root cause remains undetermined. |
+| Chromium disk-cache access-denied warning | Observed; root cause unknown | It did not prevent the observed UI display or normal close. No fix is claimed. |
+| Work area changed by this diagnostic run | No change observed | Both measurements were `(0,0)-(1920,1032)`; only read-only monitor APIs were used. |
+| AppBar registration, reservation, resize, and release | `NOT_RUN` | No AppBar API was invoked. |
+
+### Manual AppBar validation handoff
+
+The separate [manual AppBar validation procedure](manual-appbar-validation.md) defines the human-run sequence, starting with an unregistered startup and safe exit. It requires each phase to pass before proceeding to registration, resizing, or maximized-window checks, and specifies stop conditions for an unconfirmed release. All AppBar runtime acceptance criteria remain `NOT_RUN` until the human performs and records those steps.
+
+### Manual procedure clarification (2026-11-08)
+
+The manual procedure now resolves the repository root with `git rev-parse --show-toplevel` and derives the experiment directory as an absolute path. Each phase started in a new terminal reruns the same bootstrap; no repeated relative `Set-Location` is needed. Phase 2 is split into 2A (explicit `Remove and verify`) and 2B (Safe exit while registered), with 2B allowed only after 2A passes. Phase 2B records the automatic `ABM_REMOVE`, release verification, PowerShell exit code, and post-exit work-area measurement separately. This documentation update did not run Electron or AppBar APIs; Windows AppBar registration, reservation, and release remain unverified and `NOT_RUN`.
+
 ## Follow-up: AppBar window position diagnostics (2026-11-08)
 
 This follow-up records later human-run AppBar observations and adds read-only geometry diagnostics plus a bounded manual procedure. Codex did not start Electron, call an AppBar API, or change the Windows work area. The original AppBar register, reserve, show, remove, and guarded-shutdown behavior was not intentionally changed.
