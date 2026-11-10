@@ -254,7 +254,7 @@ When reporting the result, include the full new-session JSONL (with private path
 
 ## Next analysis
 
-The next reviewer should order `position-diagnostic` entries by `at` and compare the same AppBar HWND across labels. Determine the earliest sample at which each rectangle diverges, separately compare Electron and DWM measurements, and note whether a `move`, `resize`, `show`, or `WM_WINDOWPOSCHANGED` event preceded it. Only then propose the smallest placement change. Until that new human evidence exists, the cause remains undetermined and no automatic correction is approved.
+At the time of this earlier note, the next reviewer was asked to order `position-diagnostic` entries by `at` and compare the same AppBar HWND across labels before proposing a placement change. The human run recorded below supplies the first reported divergence stage; the implementation mechanism remains undetermined and no automatic correction is approved.
 
 ## Follow-up: deferred diagnostics after the 2026-11-08 stalled run
 
@@ -306,3 +306,63 @@ Do not repeat registration, run height changes, or conduct additional reposition
 | Post-exit work area matches pre-run value | `MANUAL_PENDING` | |
 | Deferred diagnostics prevent the prior stall | `MANUAL_PENDING` | |
 | AppBar position mismatch cause / correction | `MANUAL_PENDING` | |
+
+## Human Windows run: deferred diagnostics and first displacement stage (2026-11-10)
+
+### Environment and scope
+
+The human reported a Windows 11 Pro system at 1920×1080, one display, 96 DPI, Electron 45.2.3, and Koffi 3.3.7. The latest PR #9 instrumentation was run. Codex did not execute Electron or AppBar APIs and did not alter Windows state during this documentation update.
+
+This is a single 90 px registration, measurement, explicit removal, and Safe exit run. No position correction or additional height test is reported.
+
+### Reservation and diagnostic continuation
+
+Reported results: `ABM_NEW=1`, `ABM_QUERYPOS=1`, `ABM_SETPOS=1`, and `SetWindowPos=true`. The accepted AppBar rectangle was `(0,0)-(1920,90)`. The measured reserved work area was `(0,90)-(1920,1032)`.
+
+The JSONL contained `before-setwindowpos`, `after-setwindowpos`, `before-showinactive`, `after-showinactive`, and `after-show-settled`. Thus the earlier behavior—logs stopping during the message diagnostic with later steps absent—did not recur in this reported run. `SetWindowPos` returned and subsequent Electron processing continued. This supports continuing with the deferred instrumentation, but does not prove that it was the exact cause of the prior stall or that other environments cannot stall.
+
+### Earliest reported position mismatch
+
+| Label | Electron X | Electron Y |
+|---|---:|---:|
+| `after-setpos` | 0 | 0 |
+| `before-setwindowpos` | 0 | 0 |
+| `after-setwindowpos` | 8 | 90 |
+| `after-showinactive` | 8 | 90 |
+| `after-show-settled` | 8 | 90 |
+
+The Electron window's first reported displacement is already present at `after-setwindowpos`: the window is at `(8,90)` while the accepted reservation starts at `(0,0)`. It remains there in the later show samples. Therefore `showInactive()` alone did not first create the observed displacement. The evidence places its occurrence within `SetWindowPos` or its synchronous window-position handling before the call returned. It does not determine which internal routine changed the coordinates. Windows work-area-based Electron/Chromium window constraints are one hypothesis only, not a confirmed cause.
+
+`SWP_NOSENDCHANGING` may be compared in a future, separately scoped experiment. It was not added, and its effect is unknown. Fixed offsets, flag changes, BrowserWindow changes, and repositioning loops are not authorized by this result.
+
+### Removal evidence and SC-006 boundary
+
+The human reported `ABM_REMOVE.returnValue=1`, `release-verification.apiAccepted=true`, `workAreaRestored=true`, `appBarHidden=true`, and `operatorWindowUnchanged=true`. The subsequent `safe-shutdown-confirmed` reported state `released`. The measured post-removal work area was `(0,0)-(1920,1032)`.
+
+The shared JSONL does not include the PowerShell exit code or a separate work-area measurement taken after the process exited. Keep the in-process release checks separate from complete external confirmation of `SC-006`.
+
+### Results
+
+| Verification item | Result | Evidence boundary |
+|---|---|---|
+| 90 px AppBar registration | `PASS` | `ABM_NEW=1` reported |
+| Windows work-area reservation | `PASS` | Accepted `(0,0)-(1920,90)`; work area `(0,90)-(1920,1032)` reported |
+| `SetWindowPos` normal return | `PASS` | `true`; subsequent events recorded |
+| `showInactive()` continuation | `PASS` | Before/after events and settled sample recorded |
+| Deferred diagnostic logging | `PASS` | Required labels through `after-show-settled` reported |
+| First displacement stage identified | `PASS` | First mismatch at `after-setwindowpos` |
+| Accepted rectangle and displayed Electron position match | `FAIL` | Electron position `(8,90)` while accepted top is `0` |
+| Explicit `ABM_REMOVE` | `PASS` | Return value `1` reported |
+| In-process release verification | `PASS` | API and three state flags all reported true |
+| Safe exit path | `PASS` (log evidence) | `safe-shutdown-confirmed`, state `released` |
+| PowerShell process exit code | `NOT_CONFIRMED` | Numeric code not included |
+| Independent work-area measurement after process exit | `NOT_CONFIRMED` | Not included in shared evidence |
+| Exact root cause of displacement | Unresolved | Stage identified, internal mechanism unknown |
+
+For this Spike, `PASS` on the diagnostic objective means that post-`SetWindowPos` samples were recorded and the first observed mismatch stage was identified. The `FAIL` for displayed-position alignment is a finding, not a failure to achieve this PR's diagnostic purpose. The feature acceptance criteria are not all passed by this experiment; the product specification remains unchanged.
+
+| Follow-up status | Result |
+|---|---|
+| Deferred diagnostics prevent recurrence in this run | `PASS` for this observed run; causal proof and cross-environment guarantee are not established |
+| Position correction | Not implemented; next Technical Spike required |
+| Full external `SC-006` confirmation | `NOT_CONFIRMED` |

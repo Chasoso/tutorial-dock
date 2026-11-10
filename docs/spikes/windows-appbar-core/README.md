@@ -325,3 +325,59 @@ Before a human retest, inspect existing Electron process command lines and read 
 | SetWindowPos processing stall resolved | `MANUAL_PENDING` |
 | AppBar position mismatch explained or fixed | `MANUAL_PENDING` |
 | AppBar release and post-exit state in a new run | `MANUAL_PENDING` |
+
+The table above records the state before the human run below. The selected items were rechecked on 2026-11-10; unreported external process-exit evidence remains unconfirmed.
+
+## Follow-up: Windows run of deferred position diagnostics (2026-11-10)
+
+### Environment and human-provided evidence
+
+The human ran the latest PR #9 code on Windows 11 Pro, 1920×1080, one display, 96 DPI, Electron 45.2.3, and Koffi 3.3.7. Codex did not run Electron, invoke AppBar APIs, or change Windows state for this follow-up.
+
+The 90 px AppBar registration and reservation succeeded. The reported results were `ABM_NEW=1`, `ABM_QUERYPOS=1`, `ABM_SETPOS=1`, and `SetWindowPos=true`. Windows accepted `(0,0)-(1920,90)` and the work area became `(0,90)-(1920,1032)`.
+
+### Deferred diagnostic behavior
+
+The prior run's log had stopped during a `WM_WINDOWPOSCHANGED` diagnostic, before `after-setwindowpos` or release events. In this run the JSONL contained `before-setwindowpos`, `after-setwindowpos`, `before-showinactive`, `after-showinactive`, and `after-show-settled`; `SetWindowPos` returned `true` and subsequent Electron processing continued. The reported processing stall did not recur in this run after the callback measurement and file logging were deferred. This is an observed non-recurrence in one environment; it does not prove the exact earlier failure mechanism or guarantee prevention on other systems.
+
+### First observed position mismatch
+
+The reported Electron window coordinates were:
+
+| Diagnostic label | Electron X | Electron Y |
+|---|---:|---:|
+| `after-setpos` | 0 | 0 |
+| `before-setwindowpos` | 0 | 0 |
+| `after-setwindowpos` | 8 | 90 |
+| `after-showinactive` | 8 | 90 |
+| `after-show-settled` | 8 | 90 |
+
+The first reported mismatch is at `after-setwindowpos`: the accepted reservation begins at `top=0`, while the Electron position is already at `y=90`. The later `showInactive()` call did not first introduce the observed offset. The evidence locates the displacement to `SetWindowPos` or synchronous window-position handling before that call returned; it does not identify the internal code that moved the window. Electron/Chromium work-area-based window constraints remain a hypothesis, not a confirmed cause. No position correction was attempted in this PR.
+
+### Removal and remaining SC-006 evidence
+
+The human-provided log reports `ABM_REMOVE.returnValue=1`, then `release-verification` with `apiAccepted=true`, `workAreaRestored=true`, `appBarHidden=true`, and `operatorWindowUnchanged=true`, followed by `safe-shutdown-confirmed` with state `released`. The work area after removal was `(0,0)-(1920,1032)`.
+
+The supplied JSONL does not include the numeric PowerShell process exit code or an independent work-area measurement after the process exited. Thus the in-process release and Safe exit path are evidenced, but full external confirmation of `SC-006` is not. Do not treat the missing evidence as a failure or a pass.
+
+### Result for this diagnostic Spike
+
+| Verification item | Result | Evidence boundary |
+|---|---|---|
+| 90 px AppBar registration | `PASS` | Human-reported API result `ABM_NEW=1` |
+| Windows work-area reservation | `PASS` | Accepted rectangle and measured work-area change reported |
+| `SetWindowPos` normal return | `PASS` | Return was `true`; following samples were recorded |
+| `showInactive()` processing | `PASS` | Before/after samples exist and processing continued |
+| Deferred diagnostic samples obtained | `PASS` | All listed labels through `after-show-settled` were reported |
+| First observed position-divergence stage identified | `PASS` | First reported mismatch is `after-setwindowpos` |
+| Accepted reservation rectangle matches displayed window position | `FAIL` | Electron coordinates become `(8,90)` while accepted top is `0` |
+| Explicit `ABM_REMOVE` | `PASS` | Return value `1` reported |
+| In-process release verification | `PASS` | All four release flags reported `true` |
+| Safe exit path | `PASS` (JSONL evidence) | `safe-shutdown-confirmed`, state `released` |
+| External PowerShell process exit code | `NOT_CONFIRMED` | Numeric value not supplied |
+| Independent work-area check after process exit | `NOT_CONFIRMED` | No post-process measurement supplied |
+| Exact root cause of position displacement | Unresolved | Evidence identifies the stage, not the internal mechanism |
+
+The displacement being `FAIL` is within this Spike's diagnostic finding; it does not mean the instrumentation objective failed. The diagnostic objective—capture the post-`SetWindowPos` samples, locate the first observed mismatch, and record release evidence—was achieved. The position problem remains for a separately scoped follow-up Technical Spike. One untested candidate for that future investigation is a controlled comparison of `SWP_NOSENDCHANGING`; it is not implemented or validated here. Do not add a fixed 90 px offset, change flags, or introduce automatic repositioning based on this evidence alone.
+
+The earlier 2026-11-08 retest table remains a historical snapshot. This 2026-11-10 run updates the stall, positioning-stage, and in-process release observations for its own run; it does not supply the missing external `SC-006` evidence or alter the approved feature specification.
