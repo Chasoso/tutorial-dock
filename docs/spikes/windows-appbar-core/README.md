@@ -302,3 +302,118 @@ The separate [manual AppBar validation procedure](manual-appbar-validation.md) d
 ### Manual procedure clarification (2026-11-08)
 
 The manual procedure now resolves the repository root with `git rev-parse --show-toplevel` and derives the experiment directory as an absolute path. Each phase started in a new terminal reruns the same bootstrap; no repeated relative `Set-Location` is needed. Phase 2 is split into 2A (explicit `Remove and verify`) and 2B (Safe exit while registered), with 2B allowed only after 2A passes. Phase 2B records the automatic `ABM_REMOVE`, release verification, PowerShell exit code, and post-exit work-area measurement separately. This documentation update did not run Electron or AppBar APIs; Windows AppBar registration, reservation, and release remain unverified and `NOT_RUN`.
+
+## Follow-up: AppBar window position diagnostics (2026-11-08)
+
+This follow-up records later human-run AppBar observations and adds read-only geometry diagnostics plus a bounded manual procedure. Codex did not start Electron, call an AppBar API, or change the Windows work area. The original AppBar register, reserve, show, remove, and guarded-shutdown behavior was not intentionally changed.
+
+### Human observations supplied for this follow-up
+
+The reported environment was Windows 11 Pro, one 1920×1080 display, 96 DPI. The human reported successful `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS`, `SetWindowPos`, work-area reservation at 90 px and 34 px, return to 90 px, `ABM_REMOVE`, and restoration of the pre-registration work area.
+
+For a 90 px request, the proposed, queried, and accepted rectangle was `(0,0)-(1920,90)`, and the work area became `(0,90)-(1920,1032)`. `ABM_QUERYPOS` and `ABM_SETPOS` returned `1`, `SetWindowPos` returned `true`, and `matchesExpectedTop` was `true`. The subsequent AppBar `GetWindowRect` was `(0,90)-(1936,188)`. For 34 px, the accepted rectangle was `(0,0)-(1920,34)`, work area `(0,34)-(1920,1032)`, and AppBar `GetWindowRect` `(0,34)-(1936,132)`. Before registration, `GetWindowRect` was `(-8,0)-(1928,98)`.
+
+The supplied in-process `release-verification` reported `apiAccepted`, `workAreaRestored`, `appBarHidden`, and `operatorWindowUnchanged` as true, followed by `safe-shutdown-confirmed`. No PowerShell exit code or independent work-area measurement after process exit was supplied. This is not a complete `SC-006` PASS.
+
+These values show a mismatch between the accepted AppBar rectangle and the subsequent Win32 window rectangle. They do not identify when or why that mismatch began. In particular, the 16 px width and 8 px height differences have not been attributed to a frame border, DPI conversion, `showInactive()`, AppBar work-area processing, or any other cause.
+
+### Diagnostic instrumentation and remaining status
+
+At that revision, the isolated PoC emitted timestamped `position-diagnostic` JSONL entries around `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS`, `SetWindowPos`, `showInactive()`, and `ABM_REMOVE`; its `show`/`move`/`resize` and hooked Windows-message diagnostics ran synchronously in their callbacks. This instrumentation detail is superseded by the deferred-callback follow-up below. Each sample separately captures the work area, the AppBar and operator HWND `GetWindowRect`, Electron `getBounds()` / `getContentBounds()` / visibility, and (when available) DWM extended-frame bounds. A single 250 ms post-show sample is read-only. Measurement failures are recorded as unavailable; no value is normalized, interpreted as a cause, or used to move/re-register the window. No correction loop was added.
+
+The measurement APIs may describe different coordinate spaces and frame boundaries. Windows documents `GetWindowRect` as DPI-virtualized and potentially inclusive of invisible resize borders; DWM extended-frame bounds exclude those borders and are not DPI adjusted. Electron geometry is recorded separately without conversion. Compare the values only after accounting for those distinctions.
+
+The human-only, 90 px diagnostic sequence is documented in [position-diagnostics.md](position-diagnostics.md). It performs one registration and explicit verified removal, then exits safely; it does not include 34 px changes, external maximized-app checks, or automatic repositioning. All new Windows runtime measurements remain `MANUAL_PENDING`; AppBar placement cause remains undetermined. Codex performed static checks only.
+
+## Follow-up: deferred diagnostics after the stalled SetWindowPos run (2026-11-08)
+
+### Human evidence and uncertainty
+
+In a human-run Windows 11 Pro session (1920×1080, one display, 96 DPI; Electron 45.2.3, Koffi 3.3.7), the AppBar reservation succeeded at 90 px: the accepted rectangle was `(0,0)-(1920,90)` and the work area became `(0,90)-(1920,1032)`. Immediately before `SetWindowPos`, the requested values were `x=0`, `y=0`, `width=1920`, `height=90`, `flags=84`; Electron bounds were `(0,0,1920,90)` and `isVisible` was false.
+
+While `WM_WINDOWPOSCHANGED` was being observed, the work-area top was 90, `GetWindowRect` was `(0,90)-(1936,188)`, Electron bounds were `(8,90,1920,90)`, DWM extended-frame bounds were `(7,90)-(1929,181)`, and the AppBar window was visible. The log then ended at that message's `position-diagnostic`: `after-setwindowpos`, show samples, `ABM_REMOVE`, `release-verification`, and `safe-shutdown-confirmed` were absent. The human later saw Electron main and child processes still present and an external work-area reading of `(0,0)-(1920,1032)`. The work-area reading alone does not prove that `ABM_REMOVE` completed or that the AppBar registration was cleared.
+
+The synchronous message-hook diagnostic is a plausible source of reentrancy or processing delay because it called native/Electron/DWM measurement and synchronous JSONL output from the hook callback. This remains a hypothesis. The supplied log does not establish why the callback stopped producing entries or why the processes remained.
+
+### Deferred diagnostic change
+
+The Windows-message and AppBar-message callbacks now capture only bounded message data, timestamp/sequence metadata, and enqueue it in memory. `show`, `move`, and `resize` use the same queue. Geometry reads, JSONL records, and serialization occur later on the Node.js event loop. The queue is capped at eight distinct labels, coalesces repeat events by label, captures at most two labels per batch, and spaces batches by at least 100 ms. Overflow and lifecycle drops are counted. Callback capture failures are held in memory and reported later. Removal or safe shutdown cancels pending diagnostic batches and the finite show-settled timer. The stop summary is buffered in memory and written after the release checks; later suppressed callbacks are counted for the next safe summary drain.
+
+Deferred records separate source-event time (`messageObservedAt` or `eventObservedAt`, with first/last sequence and coalesced count) from `measurementCapturedAt`. The JSONL `at` field remains record time. A deferred rectangle describes the later read only, not the original message-time rectangle. The `ABM_NEW` → `ABM_QUERYPOS` → `ABM_SETPOS` → `SetWindowPos` → `showInactive()` functional sequence, arguments/flags, `ABM_REMOVE`, release checks, and safe-shutdown conditions were not changed. For removal, the `REMOVING` state is applied and announced before `ABM_REMOVE`, but its JSONL entry and release-start notification errors are buffered; release-path JSONL writes occur only after the API attempt, hide attempt, post-removal measurements, and release-state decision. Deferred state records carry `transitionObservedAt` so their event time is distinct from the later JSONL write time. No automatic repositioning or AppBar call was added.
+
+An independent review found that the initial deferred-diagnostic revision still synchronously wrote the `REMOVING` transition before `ABM_REMOVE` and the post-removal measurement before evaluating release flags. Those writes are now buffered until the release-state decision is complete; post-removal measurement data carries `measurementCapturedAt`, and deferred state/API records carry their observation timestamps. The review also identified stopped-event counters that could outlive an empty summary; suppression counts now remain bounded and are included in the next safe summary drain. These changes address the review findings statically; they do not establish a runtime stall fix.
+
+### Retest state
+
+Codex performed static analysis only and did not launch Electron, register/remove an AppBar, or change Windows state. `node --check`, the bounded-queue unit test, and diff checks are recorded with the PR. Whether deferring the callbacks lets `SetWindowPos` return and produces the later samples remains **`MANUAL_PENDING`**; the position mismatch also remains unexplained.
+
+Before a human retest, inspect existing Electron process command lines and read the work area. If the prior PoC's release and exit are not known to be complete, do not start another PoC. Do not terminate processes, restart Explorer/Windows, or perform other OS recovery. In an interactive Windows terminal, start one session, register 90 px once, save the JSONL and check `after-setwindowpos` and following samples, then use **Remove and verify** and **Safe exit**. Record the PowerShell exit code and read the work area after exit. Do not change height or try repositioning. The full sequence and stop conditions are in [position-diagnostics.md](position-diagnostics.md).
+
+| Check | Result |
+|---|---|
+| Static JavaScript syntax (`main.cjs`, queue module, queue test) | `PASS` with Node.js `v24.12.0`; no Electron launch |
+| Bounded queue unit tests | `PASS` (4 tests: coalescing, overflow limit, batch limit, lifecycle clear) |
+| Callback static scan | `PASS`; geometry APIs, JSONL serialization/I/O, `record()`, and AppBar/placement APIs are absent from the hooked callback bodies |
+| Existing API sequence and arguments | Static diff confirms the AppBar registration/reservation/removal calls and `SetWindowPos` request arguments/flags are unchanged |
+| `git diff --check` | `PASS` for the working diff; the committed base-to-HEAD check is also run before push |
+| Release-path JSONL writes follow the release-state checks | `PASS` by static inspection; log timing only changed, API order and release criteria retained |
+| Human retest of deferred callback diagnostics | `MANUAL_PENDING` |
+| SetWindowPos processing stall resolved | `MANUAL_PENDING` |
+| AppBar position mismatch explained or fixed | `MANUAL_PENDING` |
+| AppBar release and post-exit state in a new run | `MANUAL_PENDING` |
+
+The table above records the state before the human run below. The selected items were rechecked on 2026-11-10; unreported external process-exit evidence remains unconfirmed.
+
+## Follow-up: Windows run of deferred position diagnostics (2026-11-10)
+
+### Environment and human-provided evidence
+
+The human ran the latest PR #9 code on Windows 11 Pro, 1920×1080, one display, 96 DPI, Electron 45.2.3, and Koffi 3.3.7. Codex did not run Electron, invoke AppBar APIs, or change Windows state for this follow-up.
+
+The 90 px AppBar registration and reservation succeeded. The reported results were `ABM_NEW=1`, `ABM_QUERYPOS=1`, `ABM_SETPOS=1`, and `SetWindowPos=true`. Windows accepted `(0,0)-(1920,90)` and the work area became `(0,90)-(1920,1032)`.
+
+### Deferred diagnostic behavior
+
+The prior run's log had stopped during a `WM_WINDOWPOSCHANGED` diagnostic, before `after-setwindowpos` or release events. In this run the JSONL contained `before-setwindowpos`, `after-setwindowpos`, `before-showinactive`, `after-showinactive`, and `after-show-settled`; `SetWindowPos` returned `true` and subsequent Electron processing continued. The reported processing stall did not recur in this run after the callback measurement and file logging were deferred. This is an observed non-recurrence in one environment; it does not prove the exact earlier failure mechanism or guarantee prevention on other systems.
+
+### First observed position mismatch
+
+The reported Electron window coordinates were:
+
+| Diagnostic label | Electron X | Electron Y |
+|---|---:|---:|
+| `after-setpos` | 0 | 0 |
+| `before-setwindowpos` | 0 | 0 |
+| `after-setwindowpos` | 8 | 90 |
+| `after-showinactive` | 8 | 90 |
+| `after-show-settled` | 8 | 90 |
+
+The first reported mismatch is at `after-setwindowpos`: the accepted reservation begins at `top=0`, while the Electron position is already at `y=90`. The later `showInactive()` call did not first introduce the observed offset. The evidence locates the displacement to `SetWindowPos` or synchronous window-position handling before that call returned; it does not identify the internal code that moved the window. Electron/Chromium work-area-based window constraints remain a hypothesis, not a confirmed cause. No position correction was attempted in this PR.
+
+### Removal and remaining SC-006 evidence
+
+The human-provided log reports `ABM_REMOVE.returnValue=1`, then `release-verification` with `apiAccepted=true`, `workAreaRestored=true`, `appBarHidden=true`, and `operatorWindowUnchanged=true`, followed by `safe-shutdown-confirmed` with state `released`. The work area after removal was `(0,0)-(1920,1032)`.
+
+The supplied JSONL does not include the numeric PowerShell process exit code or an independent work-area measurement after the process exited. Thus the in-process release and Safe exit path are evidenced, but full external confirmation of `SC-006` is not. Do not treat the missing evidence as a failure or a pass.
+
+### Result for this diagnostic Spike
+
+| Verification item | Result | Evidence boundary |
+|---|---|---|
+| 90 px AppBar registration | `PASS` | Human-reported API result `ABM_NEW=1` |
+| Windows work-area reservation | `PASS` | Accepted rectangle and measured work-area change reported |
+| `SetWindowPos` normal return | `PASS` | Return was `true`; following samples were recorded |
+| `showInactive()` processing | `PASS` | Before/after samples exist and processing continued |
+| Deferred diagnostic samples obtained | `PASS` | All listed labels through `after-show-settled` were reported |
+| First observed position-divergence stage identified | `PASS` | First reported mismatch is `after-setwindowpos` |
+| Accepted reservation rectangle matches displayed window position | `FAIL` | Electron coordinates become `(8,90)` while accepted top is `0` |
+| Explicit `ABM_REMOVE` | `PASS` | Return value `1` reported |
+| In-process release verification | `PASS` | All four release flags reported `true` |
+| Safe exit path | `PASS` (JSONL evidence) | `safe-shutdown-confirmed`, state `released` |
+| External PowerShell process exit code | `NOT_CONFIRMED` | Numeric value not supplied |
+| Independent work-area check after process exit | `NOT_CONFIRMED` | No post-process measurement supplied |
+| Exact root cause of position displacement | Unresolved | Evidence identifies the stage, not the internal mechanism |
+
+The displacement being `FAIL` is within this Spike's diagnostic finding; it does not mean the instrumentation objective failed. The diagnostic objective—capture the post-`SetWindowPos` samples, locate the first observed mismatch, and record release evidence—was achieved. The position problem remains for a separately scoped follow-up Technical Spike. One untested candidate for that future investigation is a controlled comparison of `SWP_NOSENDCHANGING`; it is not implemented or validated here. Do not add a fixed 90 px offset, change flags, or introduce automatic repositioning based on this evidence alone.
+
+The earlier 2026-11-08 retest table remains a historical snapshot. This 2026-11-10 run updates the stall, positioning-stage, and in-process release observations for its own run; it does not supply the missing external `SC-006` evidence or alter the approved feature specification.
