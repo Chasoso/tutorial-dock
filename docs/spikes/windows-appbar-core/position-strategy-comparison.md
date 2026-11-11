@@ -4,7 +4,9 @@
 
 This Technical Spike compares the existing `SetWindowPos` flags with the same flags plus `SWP_NOSENDCHANGING`. The only intended runtime difference between the two runs is this one flag. It tests a cause hypothesis; it does not implement a position correction or establish production readiness.
 
-The comparison is **`MANUAL_PENDING`** until a human runs both variants on the same Windows environment and records the JSONL, work-area readings, process exit codes, and visible placement. Codex must not launch Electron or invoke AppBar APIs for this procedure.
+The human ran both variants on Windows on 2026-11-12 JST. The 90 px positioning result is recorded below: both runs reserved the same work area, but the visible bar settled 90 px below the top edge. `nosendchanging` briefly produced a top-aligned native rectangle immediately after `SetWindowPos`, then a later move/resize observation showed the bar at Y=90 again. The comparison therefore shows that this flag alone does not solve the visible placement issue in this run.
+
+Post-process corroboration remains incomplete. Numeric PowerShell exit codes and independent work-area measurements after process exit were not supplied; the `nosendchanging` log also has no `safe-shutdown-confirmed` event. These items remain `MANUAL_PENDING` and must not be inferred from the in-process release verification. Codex did not run Electron or invoke AppBar APIs.
 
 Related approved behavior is described by [the Windows AppBar specification](../../../specs/windows-appbar/spec.md), especially AB-002 and SC-002a. Existing position-diagnostic labels and measurement caveats are in [position-diagnostics.md](position-diagnostics.md). The existing staged Windows/AppBar safety procedure is in [manual-appbar-validation.md](manual-appbar-validation.md).
 
@@ -329,40 +331,50 @@ Do not mark SC-002a or SC-006 PASS merely because an API returned success. This 
 
 ## Result record
 
-Fill one column per independent process. If a run was not performed, use `NOT_RUN`; if it was performed but evidence is incomplete, use `MANUAL_PENDING` and explain why. Do not infer values.
+The following records were extracted from the two human-provided JSONL sessions. The operator separately reported that both bars were visibly 90 px below the display top; no screenshot was supplied. Values not present in the JSONL or supplied console output remain unconfirmed.
 
 | Item | Baseline A | NoSendChanging B |
 |---|---|---|
-| Date/time and operator |  |  |
-| Windows version/build; display count/resolution/DPI/taskbar |  |  |
-| Node.js / Electron / Koffi versions |  |  |
-| Branch and commit SHA |  |  |
-| PowerShell run start time |  |  |
-| JSONL filename |  |  |
-| Phase A/B commit and environment equality gate | Phase A reference | PASS / FAIL / NOT_RUN |
-| Selected variant and logged flags |  |  |
-| Initial monitor/work-area bounds |  |  |
-| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` |  |  |
-| `acceptedRect` |  |  |
-| Work area after reservation |  |  |
-| `SetWindowPos` HWND role and X/Y/width/height/flags/result |  |  |
-| Electron outer/content bounds by label |  |  |
-| Win32 `GetWindowRect` by label |  |  |
-| DWM visible-frame bounds by label or unavailable reason |  |  |
-| First sample with any position divergence |  |  |
-| Visible top edge and horizontal placement |  |  |
-| Visible height/frame differences |  |  |
-| `ABM_REMOVE` / release-verification / Safe exit |  |  |
-| PowerShell exit code |  |  |
-| External process-exit check |  |  |
-| Work area after process exit |  |  |
-| Work area restored to initial value |  |  |
-| Per-run result and evidence limitations |  |  |
+| Date/time | 2026-11-12 JST; log starts `2026-11-11T18:56:04.099Z` | 2026-11-12 JST; log starts `2026-11-11T19:12:03.820Z` |
+| Windows/runtime logged | Windows 11 Pro, x64, 1 monitor, 96 DPI; Electron 45.2.3, Node 24.22.2, Chromium 156.0.8078.80 | Same logged values as A |
+| Windows build / taskbar layout / Koffi version | Not present in this JSONL | Not present in this JSONL |
+| Branch and commit SHA used for run | Not present in JSONL or supplied launch-terminal output | Not present in JSONL or supplied launch-terminal output |
+| Phase A/B environment equality | Captured fields match: OS edition, runtime, monitor count/DPI, initial work area, operator bounds. Exact commit, Windows build and taskbar equality are not independently evidenced here. | Same limitation; do not claim the full equality gate from these logs alone. |
+| JSONL filename / selected variant / flags | `session-2026-11-11T18-56-04.099Z.jsonl`; `baseline`; 84 / `0x0054` | `session-2026-11-11T19-12-03.820Z.jsonl`; `nosendchanging`; 1108 / `0x0454` |
+| Initial monitor / work area | Monitor `(0,0)-(1920,1080)`; work area `(0,0)-(1920,1032)` | Same |
+| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` | All returned `1` | All returned `1` |
+| `acceptedRect` | `(0,0)-(1920,90)` | `(0,0)-(1920,90)` |
+| Work area after reservation | `(0,90)-(1920,1032)`; `workAreaChanged=true` | Same; `workAreaChanged=true` |
+| `SetWindowPos` request / return | AppBar HWND, `(x=0,y=0,w=1920,h=90)`, flags 84 / `0x0054`; returned `true` | AppBar HWND, same requested geometry, flags 1108 / `0x0454`; returned `true` |
+| `after-setwindowpos` geometry | Electron bounds/content `(8,90,1920,90)`; Win32 rect `(0,90)-(1936,188)`; DWM frame `(7,90)-(1929,181)`; visible | Electron bounds/content `(8,0,1904,82)`; Win32 rect `(0,0)-(1920,90)`; DWM frame `(7,0)-(1913,83)`; visible |
+| `before/after-showinactive` | Already at Y=90; no further change recorded | Still at Y=0 in immediate samples; no immediate change recorded |
+| Later / settled geometry | `after-show-settled`: Electron `(8,90,1920,90)`; Win32 `(0,90)-(1936,188)`; DWM `(7,90)-(1929,181)` | `electron-event:move` spans `19:12:10.947Z`–`19:12:11.118Z`; its deferred sample at `19:12:11.219Z` shows Electron `(8,90,1920,90)`, Win32 `(0,90)-(1936,188)`, DWM `(7,90)-(1929,181)`. `after-show-settled` at `19:12:11.302Z` remains Y=90. |
+| Callback near first Y=90 sample | No AppBar callback was recorded during the initial displacement interval. | Notification code `0` (`ABN_STATECHANGE`; logged by this PoC as `other`) was observed at `19:12:11.111Z`, during the coalesced move-event interval and before the deferred Y=90 sample at `19:12:11.219Z`. The log does not establish that this callback caused the move. |
+| Visible placement (operator report) | FAIL: visible bar is 90 px below top | FAIL: visible bar is 90 px below top |
+| `ABM_REMOVE` / in-process release | `ABM_REMOVE=1`; `release-verification`: API accepted, work area restored, bar hidden, operator unchanged; `safe-shutdown-confirmed` state `released` | `ABM_REMOVE=1`; same four `release-verification` values are `true`. No `safe-shutdown-confirmed` event appears in this log. |
+| PowerShell exit code / external process check | Not supplied; `NOT_CONFIRMED` | Not supplied; `NOT_CONFIRMED` |
+| Independent work area after process exit | Not supplied; `NOT_CONFIRMED` | Not supplied; `NOT_CONFIRMED` |
+| Per-run conclusion | Reservation and in-process removal verified; stable AppBar placement fails. SC-006 end-to-end remains unconfirmed. | Reservation and in-process removal verified; transient top alignment does not persist, so stable AppBar placement fails. Safe exit and SC-006 end-to-end remain unconfirmed. |
 
 ### Interpretation
 
-- **Hypothesis supported for this environment:** B visibly and measurably avoids the prior Y displacement while A reproduces it, with reservation, geometry, show, and release conditions otherwise comparable. This supports the message-adjustment hypothesis but does not prove which Electron/Chromium component caused the adjustment.
-- **Hypothesis weakened:** A and B produce the same first displaced position with valid logs and comparable measurements. This does not exclude other `WM_WINDOWPOSCHANGING` effects in other conditions.
-- **Inconclusive:** registration, selected flags, comparable geometry, visible placement, or safe release evidence is missing or differs materially between runs.
+- **What the A/B evidence supports:** In A, the first post-call sample is already at Y=90. In B, the direct `SetWindowPos` result is initially at Y=0, showing that suppressing `WM_WINDOWPOSCHANGING` changes the immediate result of that call in this environment.
+- **What it does not solve:** B later emits a move observation and converges to the same Y=90 geometry as A before the settled sample and the operator's visual check. The flag is therefore not a persistent placement fix.
+- **Root cause remains unresolved:** The logs do not record the `WINDOWPOS` data delivered to `WM_WINDOWPOSCHANGING`, so they cannot show which proposed coordinates were changed or identify the caller of the later move. A later Electron/Chromium or Windows window-management operation is plausible; the association with the `showInactive()` phase is temporal evidence only, not proof that `showInactive()` caused it.
+- Notification code `0` (`ABN_STATECHANGE`) is observed at `19:12:11.111Z`, between the move event's first and last observations and before the first sampled Y=90 geometry. The callback is logged without repositioning. Microsoft describes this notification as reporting a taskbar autohide or always-on-top state change; the supplied evidence does not show whether such a state change occurred or whether it contributed to the movement. It remains a timing correlation for the next investigation.
+- `ABN_POSCHANGED` appears at `19:12:49.737Z`, well after the first B move observation at `19:12:10.947Z`; it cannot explain the start of that move interval. The PoC logs this notification and does not reposition in response.
+- The source review also found that the PoC observes `WM_WINDOWPOSCHANGED` but does not send `ABM_WINDOWPOSCHANGED`. Microsoft documents that an appbar should send `ABM_WINDOWPOSCHANGED` in response; the documented purpose is correct Z-order handling for autohide appbars. This is a separate AppBar protocol-conformance gap to evaluate. The evidence does not establish it as the cause of the 90 px Y shift.
+- Window rectangle differences must remain separated: Microsoft documents that `GetWindowRect` can include invisible resize borders and be DPI-virtualized, while DWM extended-frame bounds use different semantics and are not DPI-adjusted. Here the final DWM top is also 90 in both runs, and the operator independently reports the visual offset, so the stable Y failure is not explained solely by the `GetWindowRect` frame difference.
+- `ABM_SETPOS` returning `1` is not by itself proof of visible placement; the observed work-area transition to top=90 is separate evidence that the reservation took effect. Microsoft's documentation states that `ABM_SETPOS` always returns `TRUE` and returns the approved rectangle through `rc`.
 
-Even if B succeeds, X/frame differences and all other acceptance conditions remain separate. Any proposal to make B the standard or production behavior requires human review and broader validation; this Spike does not change production code or the approved specification.
+### Cause investigation and next-step plan (no fix implemented)
+
+1. **Capture the later pre-change message.** In a separate diagnostic revision, observe `WM_WINDOWPOSCHANGING` and safely copy the relevant `WINDOWPOS` fields (`hwnd`, `x`, `y`, `cx`, `cy`, `flags`) during the callback; write JSONL only after returning to the event loop. Pair each pre-change record with its `WM_WINDOWPOSCHANGED`, Electron `move`/`resize`, and timestamped geometry sample. First verify that Electron 45.2.3's `hookWindowMessage` argument and Koffi pointer representation allow a bounded, safe copy; if not, do not dereference the pointer speculatively.
+2. **Isolate the display call.** `SetWindowPos` already includes `SWP_SHOWWINDOW`, and its immediate B sample is visible at Y=0. A separate one-factor diagnostic run can omit only the subsequent `showInactive()` call while keeping all other inputs fixed. If the later Y=90 move disappears, that supports a show-path interaction; if it remains, investigate another Windows/Electron positioning path. This is an experiment, not an approved production change.
+3. **Correlate notifications and check AppBar protocol separately.** Determine why notification code `0` (`ABN_STATECHANGE`) arrived during the B move interval, and verify taskbar state without changing it. Separately confirm the effect of the missing `ABM_WINDOWPOSCHANGED` call and the log-only `ABN_POSCHANGED` handling against Microsoft's appbar contract. Keep protocol changes separate from the position-cause experiment so they do not confound it.
+4. **Inspect the pinned Electron/Chromium Windows path** only after the message/event timeline identifies the relevant operation. Compare the captured proposed `WINDOWPOS` values with the resulting native and DWM rectangles, and determine whether the operation reads the changed work area or applies frame/inset bounds.
+5. Select a corrective approach only after the responsible operation is identified. Do not adopt `SWP_NOSENDCHANGING` as the fix, add a 90 px offset, or add repeated repositioning from the current evidence. Any later candidate must preserve verified `ABM_REMOVE` and release guards and be re-tested on Windows.
+
+Sources: [Microsoft AppBar positioning and notification guidance](https://learn.microsoft.com/en-us/windows/win32/shell/application-desktop-toolbars), [ABN_STATECHANGE](https://learn.microsoft.com/en-us/windows/win32/shell/abn-statechange), [ABM_WINDOWPOSCHANGED](https://learn.microsoft.com/en-us/windows/win32/shell/abm-windowposchanged), [SWP_NOSENDCHANGING](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos), [WM_WINDOWPOSCHANGING](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-windowposchanging), [WINDOWPOS structure](https://learn.microsoft.com/ja-jp/windows/win32/api/winuser/ns-winuser-windowpos), [GetWindowRect](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect), and [Electron BrowserWindow](https://www.electronjs.org/docs/latest/api/browser-window).
+
+Any proposal to change the default variant or production behavior still requires human review and broader validation. This record does not change production code or the approved specification.
