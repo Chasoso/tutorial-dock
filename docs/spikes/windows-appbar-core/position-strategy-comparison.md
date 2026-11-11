@@ -72,6 +72,16 @@ Write-Output "Branch: $branch"
 Write-Output "Commit: $commit"
 if ($branch -ne 'spike/windows-appbar-nosendchanging') { throw 'Unexpected branch; do not run the experiment.' }
 
+$changes = @(git -C $repoRoot status --porcelain --untracked-files=all)
+$gitExitCode = $LASTEXITCODE
+if ($gitExitCode -ne 0) { throw 'Git status check failed. Stop.' }
+if ($changes.Count -gt 0) {
+  Write-Output 'Working tree changes (staged, tracked, or untracked):'
+  Write-Output $changes
+  throw 'Working tree is not clean. Stop before running the comparison.'
+}
+Write-Output 'Working tree: clean (staged, tracked, and untracked files checked).'
+
 $packagePath = Join-Path $experimentDir 'package.json'
 $mainPath = Join-Path $experimentDir 'main.cjs'
 foreach ($required in @(
@@ -102,35 +112,123 @@ if ($installedElectron.version -ne '45.2.3' -or $installedKoffi.version -ne '3.3
 node --version
 Write-Output "Electron installed version: $($installedElectron.version)"
 Write-Output "Koffi installed version: $($installedKoffi.version)"
+
+try {
+  $allProcesses = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)
+}
+catch {
+  throw 'Could not inspect local processes without elevation. Stop; do not launch the PoC.'
+}
+$electronProcesses = @($allProcesses | Where-Object { $_.Name -ieq 'electron.exe' })
+$uninspectableElectronProcesses = @($electronProcesses | Where-Object {
+  [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -or
+  [string]::IsNullOrWhiteSpace([string]$_.CommandLine)
+})
+if ($uninspectableElectronProcesses.Count -gt 0) {
+  Write-Output 'Electron processes with incomplete path/command-line information:'
+  $uninspectableElectronProcesses | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine
+  throw 'Could not conclusively inspect every Electron process. Stop; do not elevate or launch the PoC.'
+}
+
+# Phase launches pass the absolute experiment directory as the Electron app argument.
+$experimentArgumentPattern = '(?i)(?:^|\s)"?' + [regex]::Escape($experimentDir.TrimEnd('\')) + '"?(?=\s|$)'
+$sameBinaryElectronProcesses = @($electronProcesses | Where-Object {
+  [string]::Equals(
+    [System.IO.Path]::GetFullPath([string]$_.ExecutablePath),
+    [System.IO.Path]::GetFullPath($electronExe),
+    [System.StringComparison]::OrdinalIgnoreCase
+  )
+})
+$rootProcesses = @($sameBinaryElectronProcesses | Where-Object {
+  [regex]::IsMatch([string]$_.CommandLine, $experimentArgumentPattern)
+})
+$ambiguousRoots = @($sameBinaryElectronProcesses | Where-Object {
+  $_.CommandLine -notmatch '(?i)(?:^|\s)--type=' -and
+  -not [regex]::IsMatch([string]$_.CommandLine, $experimentArgumentPattern)
+})
+if ($ambiguousRoots.Count -gt 0) {
+  Write-Output 'Main Electron process(es) use the pinned executable, but their app argument is not identifiable:'
+  $ambiguousRoots | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine
+  throw 'A matching AppBar PoC or another app using the same Electron binary cannot be ruled out. Stop; do not terminate or launch.'
+}
+$trackedProcessIds = @($rootProcesses | ForEach-Object { [uint32]$_.ProcessId })
+do {
+  $knownProcessIds = @($trackedProcessIds)
+  $newChildren = @($allProcesses | Where-Object {
+    ($knownProcessIds -contains [uint32]$_.ParentProcessId) -and
+    ($knownProcessIds -notcontains [uint32]$_.ProcessId)
+  })
+  if ($newChildren.Count -eq 0) { break }
+  $trackedProcessIds += @($newChildren | ForEach-Object { [uint32]$_.ProcessId })
+} while ($true)
+$poCProcessTree = @($allProcesses | Where-Object { $trackedProcessIds -contains [uint32]$_.ProcessId })
+if ($poCProcessTree.Count -gt 0) {
+  Write-Output 'Existing AppBar PoC process tree (read-only):'
+  $poCProcessTree | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine
+  throw 'An AppBar PoC process is already running. Do not start another comparison.'
+}
+Write-Output 'No matching AppBar PoC process found in this process snapshot.'
 ```
 
 Record the branch and commit for each run; they should be identical for A and B. Confirm Windows 11, one display, 100% scaling/96 DPI, and a visible standard bottom taskbar. Do not change display settings to meet these conditions.
 
-Inspect Electron process command lines read-only and make sure no prior AppBar PoC is running. Do not terminate processes. Use the read-only display/work-area measurement steps under “ディスプレイと作業領域の読取り” in [manual-appbar-validation.md](manual-appbar-validation.md) to record the work area before each run. If Windows Forms measurement is unavailable, stop rather than substituting an unverified method. Record the initial measurement and verify it is restored before the next variant.
+The process query is read-only and does not require administrator privileges. It identifies the PoC root by the exact pinned Electron executable plus the explicit absolute app-directory argument, then follows `ParentProcessId` to include descendants. Other Electron executables are not treated as this PoC. A main process using the same binary with an unrecognized app argument is reported as ambiguous, not identified as this PoC; stop until a human can establish which app it belongs to. If process details are unavailable or the query fails, stop without elevation. If a matching PoC tree is found, do not launch another run or terminate it; use the existing safe-exit path if available. The absence of a matching process and restoration of the Windows work area are independent checks: neither substitutes for the other.
 
-Before each run, list current log names for comparison; do not clear or overwrite logs:
+Use the read-only display/work-area measurement steps under “ディスプレイと作業領域の読取り” in [manual-appbar-validation.md](manual-appbar-validation.md) before each run. If Windows Forms measurement is unavailable, stop rather than substituting an unverified method. Record the initial value and verify its restoration before the next variant. The experiment's `logs/` directory is ignored by `experiments/windows-appbar-core/.gitignore`; the clean-tree check above still checks staged, tracked, and other untracked files. Do not clear or overwrite logs.
+
+For each run, the launch terminal snapshots all existing session-log names immediately before launch. After the process exits, it identifies the new log by set difference, then pairs it with the chosen variant, commit SHA, start time, and numeric Electron process exit code. If zero or multiple new logs are found, report the ambiguity and do not infer which log belongs to the run.
+
+### Reading logs while a run is still open
+
+The PowerShell terminal that launched Electron remains occupied until the app exits. If registration or removal fails and live diagnostics are needed, open a **separate** ordinary PowerShell terminal in the repository and use this read-only block. Do not press `Ctrl+C` in the launch terminal, and do not run another PoC from the second terminal.
 
 ```powershell
-if (Test-Path -LiteralPath $logDir) {
-  Get-ChildItem -LiteralPath $logDir -Filter 'session-*.jsonl' -File |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 5 Name, Length, LastWriteTime
+$ErrorActionPreference = 'Stop'
+$repoRootOutput = & git rev-parse --show-toplevel
+$gitExitCode = $LASTEXITCODE
+if ($gitExitCode -ne 0) { throw 'Cannot locate the repository root. Stop.' }
+$repoRootText = (@($repoRootOutput) -join [Environment]::NewLine).Trim()
+if ([string]::IsNullOrWhiteSpace($repoRootText)) { throw 'Repository root is empty. Stop.' }
+$repoRoot = [System.IO.Path]::GetFullPath($repoRootText)
+$logDir = Join-Path $repoRoot 'experiments\windows-appbar-core\logs'
+if (-not (Test-Path -LiteralPath $logDir -PathType Container)) { throw 'No session log directory exists yet.' }
+Get-ChildItem -LiteralPath $logDir -Filter 'session-*.jsonl' -File |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 10 Name, Length, LastWriteTime
+$logPathInput = Read-Host 'Enter the full path of the active run JSONL shown above'
+$logPath = [System.IO.Path]::GetFullPath($logPathInput)
+$logRoot = [System.IO.Path]::GetFullPath($logDir).TrimEnd('\') + '\'
+if (-not $logPath.StartsWith($logRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+  throw 'Selected path is outside the experiment logs directory. Stop.'
 }
+if ([System.IO.Path]::GetFileName($logPath) -notlike 'session-*.jsonl') {
+  throw 'Selected file is not a session JSONL log. Stop.'
+}
+Get-Content -LiteralPath $logPath -Tail 50
 ```
 
-The PoC appends to a new `session-*.jsonl` file for each launch. After the run, associate the newly created file with the explicitly selected variant. Avoid redirecting stdout/stderr; the JSONL file is the primary diagnostic evidence.
+This live-read path is for a failed or uncertain operation only. Keep the PoC windows open and follow the operator UI's existing release guidance; do not kill the process. If release cannot be confirmed, stop further tests.
 
 ## Phase A — Baseline
 
-1. Complete Phase 0 and record the initial Windows work area and the latest existing log filenames.
+1. Complete Phase 0 and record the initial Windows work area.
 2. From the experiment directory, start the fixed Electron binary with the explicit baseline variant:
 
    ```powershell
+   $phaseVariant = 'baseline'
+   $priorLogNames = @()
+   if (Test-Path -LiteralPath $logDir -PathType Container) {
+     $priorLogNames = @(Get-ChildItem -LiteralPath $logDir -Filter 'session-*.jsonl' -File | ForEach-Object { $_.Name })
+   }
+   Write-Output 'Session logs present before this run:'
+   if ($priorLogNames.Count -gt 0) { Write-Output $priorLogNames } else { Write-Output '(none)' }
+   $runStartedAt = (Get-Date).ToString('o')
+   Write-Output "Run: variant=$phaseVariant; commit=$commit; startedAt=$runStartedAt"
    Set-Location -LiteralPath $experimentDir
-   $env:TUTORIAL_DOCK_SPIKE_POSITION_VARIANT = 'baseline'
+   $env:TUTORIAL_DOCK_SPIKE_POSITION_VARIANT = $phaseVariant
    $runExitCode = $null
    try {
-     & $electronExe .
+     & $electronExe $experimentDir
      $runExitCode = $LASTEXITCODE
    }
    finally {
@@ -143,24 +241,33 @@ The PoC appends to a new `session-*.jsonl` file for each launch. After the run, 
 4. Click **Measure work area** and record the startup measurement.
 5. Click **Register 90 px top AppBar** once. Record the registration state, API returns, accepted rectangle, and work area. If registration or reservation is rejected or uncertain, proceed only with the existing safe removal flow; do not test position comparison.
 6. Capture the AppBar's visible placement and record whether the visible top edge is at the monitor top. Do not attempt to move or correct it.
-7. Inspect the new JSONL file and record `position-variant-selected`, `registration-baseline`, `ABM_NEW`, `reservation-size`, and the position-diagnostic samples.
-8. Click **Remove and verify**. Confirm `ABM_REMOVE`, `release-verification`, and the restored work area in the UI/log. Do not continue if removal is not confirmed.
-9. Click **Safe exit**. Wait for control to return to PowerShell and record the numeric exit code. From a fresh PowerShell measurement, verify that the process ended and that the work area equals the Phase 0 value. Do not treat an in-process log alone as external process-exit evidence.
-10. Proceed to Phase B only if registration, removal, Safe exit, exit code 0, and external work-area restoration are all confirmed. If any is missing or fails, stop and do not launch the other variant.
+7. Click **Remove and verify**. Confirm `ABM_REMOVE`, `release-verification`, and restored work area in the operator UI. Do not continue if removal is not confirmed.
+8. Click **Safe exit**. Wait for the launch command to return; do not interrupt it.
+9. Follow “After each run” below. Inspect the JSONL only after exit unless a registration/removal failure requires the separate-terminal live-read procedure.
+10. Proceed to Phase B only if registration, removal, Safe exit, numeric exit code 0, no remaining PoC process, external work-area restoration, and exactly one identified log reporting `baseline` with flags 84 / `0x0054` are all confirmed. If any is missing or fails, stop and do not launch the other variant.
 
 ## Phase B — NoSendChanging
 
 Use a separate Electron process and a fresh Phase 0 preflight. Confirm Phase A's process has exited and its work area has returned to baseline before launch. Use the same single registration, **Remove and verify**, and **Safe exit** sequence as Phase A so release handling is comparable.
 
-1. Record the Phase B initial work area and current log filenames.
+1. Complete a fresh Phase 0 and record the Phase B initial work area. Use a new log-name snapshot for this process.
 2. Launch with only the variant value changed:
 
    ```powershell
+   $phaseVariant = 'nosendchanging'
+   $priorLogNames = @()
+   if (Test-Path -LiteralPath $logDir -PathType Container) {
+     $priorLogNames = @(Get-ChildItem -LiteralPath $logDir -Filter 'session-*.jsonl' -File | ForEach-Object { $_.Name })
+   }
+   Write-Output 'Session logs present before this run:'
+   if ($priorLogNames.Count -gt 0) { Write-Output $priorLogNames } else { Write-Output '(none)' }
+   $runStartedAt = (Get-Date).ToString('o')
+   Write-Output "Run: variant=$phaseVariant; commit=$commit; startedAt=$runStartedAt"
    Set-Location -LiteralPath $experimentDir
-   $env:TUTORIAL_DOCK_SPIKE_POSITION_VARIANT = 'nosendchanging'
+   $env:TUTORIAL_DOCK_SPIKE_POSITION_VARIANT = $phaseVariant
    $runExitCode = $null
    try {
-     & $electronExe .
+     & $electronExe $experimentDir
      $runExitCode = $LASTEXITCODE
    }
    finally {
@@ -169,8 +276,36 @@ Use a separate Electron process and a fresh Phase 0 preflight. Confirm Phase A's
    Write-Output "Electron process exit code: $runExitCode"
    ```
 
-3. Repeat Phase A's single 90 px registration, measurements, visible-edge observation, **Remove and verify**, **Safe exit**, process-exit check, and external work-area measurement. Do not continue if any state becomes uncertain.
-4. Associate the new JSONL file with `nosendchanging`. Verify it reports `positionVariant: "nosendchanging"`, flags `1108` / `0x0454`, and the four expected flag names. If the variant or flags differ, treat the run as invalid and stop; do not infer a test result.
+3. Repeat Phase A's single 90 px registration, measurements, visible-edge observation, **Remove and verify**, and **Safe exit**. Follow “After each run” to check the process, work area, and new log. Do not continue if any state becomes uncertain.
+4. Verify the selected variant and flags in the new log. If the variant or flags differ, treat the run as invalid; do not infer a test result.
+
+## After each run
+
+Use the launch terminal after the Electron command returns. Record the numeric exit code printed by the launch block. Then perform the following independently and in this order:
+
+1. Repeat the read-only Phase 0 process-tree query. Confirm no PoC root or descendant remains. If process details are incomplete or a matching process remains, stop; do not launch the next variant or terminate anything.
+2. From an ordinary PowerShell terminal, repeat the external work-area measurement in [manual-appbar-validation.md](manual-appbar-validation.md). Compare it to this run's own pre-launch value. This is independent of the process check and does not by itself prove `ABM_REMOVE` succeeded.
+3. In the launch terminal, find the JSONL created during this run by comparing against `$priorLogNames`:
+
+   ```powershell
+   $newLogFiles = @()
+   if (Test-Path -LiteralPath $logDir -PathType Container) {
+     $newLogFiles = @(Get-ChildItem -LiteralPath $logDir -Filter 'session-*.jsonl' -File |
+       Where-Object { $priorLogNames -notcontains $_.Name })
+   }
+   if ($newLogFiles.Count -eq 1) {
+     $logPath = $newLogFiles[0].FullName
+     Write-Output "Run evidence: variant=$phaseVariant; commit=$commit; startedAt=$runStartedAt; log=$($newLogFiles[0].Name); electronExitCode=$runExitCode"
+   }
+   else {
+     Write-Warning "Expected exactly one new session log; found $($newLogFiles.Count). Do not guess which log belongs to this run."
+     $newLogFiles | Select-Object Name, Length, LastWriteTime
+   }
+   ```
+
+4. If exactly one log was identified, inspect it now. Confirm its `position-variant-selected` value matches the phase and compare `registration-baseline`, `ABM_NEW`, `reservation-size`, position samples, `ABM_REMOVE`, `release-verification`, and `safe-shutdown-confirmed`. Pair the log name with the recorded variant, commit SHA, start time, and numeric exit code.
+
+Do not use a generic “newest log” selection when multiple sessions or new files exist. Never rename, delete, or overwrite session logs. If the process does not exit normally, use only the separate-terminal live-read path; do not press `Ctrl+C`.
 
 No height change, maximized application/Tableau test, display reconfiguration, forced failure, or corrective positioning is part of this comparison.
 
@@ -201,6 +336,7 @@ Fill one column per independent process. If a run was not performed, use `NOT_RU
 | Date/time and operator |  |  |
 | Windows version/build; display count/resolution/DPI/taskbar |  |  |
 | Branch and commit SHA |  |  |
+| PowerShell run start time |  |  |
 | JSONL filename |  |  |
 | Selected variant and logged flags |  |  |
 | Initial monitor/work-area bounds |  |  |
