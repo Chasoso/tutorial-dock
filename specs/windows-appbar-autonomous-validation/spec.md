@@ -73,8 +73,8 @@ Then 1 batch最大3仮説、各最大2 run、主要変更1要素の範囲で進�
 ### Scenario 6: independent reviewが完了しない
 
 Given 独立Reviewerの起動または最終判定が確認できない
-When review resultを確定する
-Then NOT_COMPLETEDを根拠付きで保存し、self-reviewをPASSにしない。別Codexセッションは人間の承認前に正式な代替扱いされない。
+When Reviewerが処理中の間、承認済みreview deadlineまで状態を確認する
+Then poll回数だけで打ち切らず、完了通知があれば直ちにverdictを取得する。期限後の最終判定要求を一度行っても受領できなければ、最後のstatusと終了理由を記録してNOT_COMPLETEDとし、self-reviewをPASSにしない。別Codexセッションは人間の承認前に正式な代替扱いされない。
 
 ## 4. Functional requirements
 
@@ -108,6 +108,8 @@ run verdictはPASS、FAIL、INCONCLUSIVE。API成功だけで表示位置や製�
 
 別コンテキストのread-only Review Subagent、対象HEAD SHA、起動/実行/完了状態、明示的判定を記録する。レビュー基盤の無応答と実コードFindingを区別する。判定を受領できなければNOT_COMPLETEDであり、自己レビューや未承認の別セッションで補完しない。正式なfallback導入は人間の承認を要する。
 
+待機は回数上限ではなく、起動時に定めた経過時間deadlineで管理する。通常規模のレビューは最大10分、大規模レビューは最大15〜20分を提案し、状態は約60秒ごとに確認する。期限後は最終判定を一度だけ要求する。最終化猶予後も実行中で、安全なcancel/close機能がある場合は一度だけ終了を要求し、終了応答をverdictと混同しない。レビュー期限、最終化猶予、CHANGES_REQUIREDへの修正・再レビュー最大3 loopは別々に記録し、poll数を修正loopとして数えない。具体的な実装は利用するreview基盤の実行時間・進捗通知の能力を確認してから決める。
+
 ## 5. Success criteria
 
 | ID | Criteria | Evidence |
@@ -120,7 +122,7 @@ run verdictはPASS、FAIL、INCONCLUSIVE。API成功だけで表示位置や製�
 | AV-SC-006 | 未確認の解除/終了/復帰または環境driftが次runをfail-closedで止める。 | 安全な失敗注入を隔離VMで行い、次run拒否と対象VM復元を確認する。 |
 | AV-SC-007 | 3仮説×2 run上限、one-factor条件、事前静的ゲートを越えない。 | 上限境界テストと監査ログ。 |
 | AV-SC-008 | checkpoint復元後も直前runはAppBar解除PASSと誤判定されない。 | 復元とreleaseを異なるrecord field/statusで確認。 |
-| AV-SC-009 | reviewer判定不取得はNOT_COMPLETEDで保持され、self-reviewで変わらない。 | review recordと状態遷移ログ。 |
+| AV-SC-009 | Reviewerの処理中状態をpoll回数だけで早期終了せず、承認済みdeadlineと一度の最終判定要求を経てもverdictが得られない場合だけNOT_COMPLETEDとする。基盤未完了はコードFindingと区別される。 | review recordに起動時刻、対象SHA、session/agent ID、規模分類、deadline、最後のstatus/進捗、最終要求、終了理由、verdictを記録。 |
 
 Success criteriaのWindows実行確認は専用VMの承認後に限る。本書の作成はどのruntime criteriaのPASSも意味しない。
 
@@ -134,6 +136,7 @@ Success criteriaのWindows実行確認は専用VMの承認後に限る。本書�
 - checkpoint種類と異常時復元手順は、対象VM IDの固定と証拠保全を検証してから決める。
 - 全画面画像の取得・回収・保存境界は未決定。
 - reviewer fallbackを正式ルールへ入れるか未決定で、現行AGENTSを変更しない。
+- 10分/15〜20分deadlineと60秒pollを現在のReview Subagent基盤で安定して運用できるか、workerのhard limitやprogress通知が提供されるか未確認。
 
 ## 7. Technical Spike candidates
 

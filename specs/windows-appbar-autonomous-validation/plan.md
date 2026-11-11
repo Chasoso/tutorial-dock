@@ -73,6 +73,15 @@ Initial implementation candidate: a Codex session runs the bounded batch and sto
 | Windows UI Automation | Drives visible controls in a guest desktop, tests real user flow. | Session-bound, timing/accessibility dependence; does not capture native internal state without separate measurement. | Compare during WP-3. |
 | Separate native test driver | Rich Win32/VM/process observation. | Must not own or register a duplicate AppBar; HWND lifetimes/control are complex. | Use only for read-only Sentinel measurements; actual AppBar belongs to Electron main process. |
 
+## Independent review wait policy proposal
+
+- Classify review scope before launch. A normal review has a bounded file/scope list and focused criteria; allow up to 10 minutes. A large cross-layer review may use 15–20 minutes. Store the selected class and deadline with the exact target SHA.
+- Poll at about 60-second intervals. A completed status/result is collected immediately. Store any exposed progress as timestamped milestone summaries; lack of progress alone does not trigger early termination.
+- At the configured deadline, send one concise final-verdict request. Allow one separate 60-second finalization window; if no explicit verdict for the pinned SHA arrives, record NOT_COMPLETED and the last known status/reason. If the platform offers safe cancel/close, request it once after finalization and record its result; do not treat cancellation as a verdict. Do not automatically relaunch the same review.
+- `wait_agent`'s currently documented call timeout is 10–3,600 seconds; `spawn_agent` exposes no worker runtime parameter, and the documented wait result has no progress payload. The review deadline is therefore an orchestrator policy, not a platform guarantee. The hard worker limit and progress/cancellation capabilities remain a commissioning question.
+- Keep three CHANGES_REQUIRED fix/re-review loops separate from polling calls, wait duration, and post-deadline finalization. A new launch after infrastructure failure is a separate bounded retry policy; the proposal is at most one manual retry after preserving the first run record and diagnosing its state.
+- The review record stores request/agent IDs, launch time, base/head SHA, scope class, deadline, every observed status/time, available progress summary, final request ID/time, verdict/time, total elapsed time, and termination reason. Missing data is NOT_CAPTURED. Do not store internal reasoning.
+
 ## Work Package sequence and gates
 
 WPs are candidates, not approved Issues or implementation authorization. See [tasks.md](tasks.md) for IDs, acceptance and approvals.
@@ -107,7 +116,7 @@ WPs are candidates, not approved Issues or implementation authorization. See [ta
 - VMConnect/PowerShell Direct/broker/task/interactive-session control.
 - Checkpoint type and restore policy; artifact retention; network, clipboard, mapping.
 - GUI control/capture technology; test-only IPC; permissions.
-- Timeout, release grace, batch scheduling, reviewer fallback rule change.
+- Experiment timeout/release grace and batch scheduling; reviewer wait deadline/runtime, progress capability, launch retry policy, and any reviewer fallback rule change.
 - Whether one bounded Codex session is sufficient or an Agents API/self-hosted executor integration is justified; data/cost/account controls for that service.
 - Whether VM results are representative enough to guide physical Windows product behavior.
 

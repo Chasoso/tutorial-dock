@@ -93,10 +93,10 @@
 - AVT-026: enforce max 3 hypotheses × max 2 runs, one primary variable/run, finite timeout, static test gate.
 - AVT-027: evidence-only hypothesis update; disallow unjustified same-condition rerun and unapproved product code changes.
 - AVT-028: route only approved experiment manifests to supervisor; Agent never directly calls VM-admin interface.
-- AVT-029: record review request/agent state/run id/output/final verdict at exact SHA; distinguish no response from findings.
+- AVT-029: record review request ID, launch time, exact base/head SHA, reviewer session/agent ID, scope class, configured deadline, status polls and timestamps, available progress milestones, one final-verdict request, final status/verdict/time, elapsed wait and termination reason. Record unavailable fields as NOT_CAPTURED; never store internal reasoning.
 - AVT-030: evaluate optional separate Codex session fallback as a proposed AGENTS/workflow change, with human approval; until merged, only existing Review Subagent PASS satisfies contract. Separately decide whether an Agents API/self-hosted executor is justified for durable cross-session automation; do not add API credentials or schedule runs without approval.
 
-**Acceptance:** a batch cannot exceed six runs or proceed after unknown safety/restore/evidence status. Resume does not duplicate a run with ambiguous state. Reviewer unavailable => NOT_COMPLETED; no self-PASS. Separate-session fallback and external Agents API automation have no effect before their respective policy/data/permission approvals.
+**Acceptance:** a batch cannot exceed six runs or proceed after unknown safety/restore/evidence status. Resume does not duplicate a run with ambiguous state. Review polling is time-based (about 60 seconds), not capped by poll count; completed results are collected immediately. Normal/large review deadlines and one post-deadline final request/grace are recorded. A missing verdict after that process is NOT_COMPLETED, not a code finding or self-PASS. Polls and finalization do not consume the existing maximum three CHANGES_REQUIRED fix/re-review loops. Any new review launch after infrastructure failure follows a separately bounded policy. Separate-session fallback and external Agents API automation have no effect before their respective policy/data/permission approvals.
 
 **Approvals:** unattended multi-run authority, first hypothesis showInactive isolation, reviewer fallback rule changes, runtime/dependency/IPC changes require human approval at the appropriate Level 2/3 gate.
 
