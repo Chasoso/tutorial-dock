@@ -170,7 +170,7 @@ if ($poCProcessTree.Count -gt 0) {
 Write-Output 'No matching AppBar PoC process found in this process snapshot.'
 ```
 
-Record the branch and commit for each run; they should be identical for A and B. Confirm Windows 11, one display, 100% scaling/96 DPI, and a visible standard bottom taskbar. Do not change display settings to meet these conditions.
+Record the branch, full commit SHA, and Phase 0 environment output for each run. Before Phase B, explicitly compare them with Phase A: branch and commit SHA, Windows version/build, display count and monitor geometry/resolution, scaling/DPI, taskbar configuration, Node.js/Electron/Koffi versions, and initial monitor/work-area rectangles must match. If any value differs or cannot be compared, stop; do not treat the runs as a valid A/B comparison. Confirm Windows 11, one display, 100% scaling/96 DPI, and a visible standard bottom taskbar. Do not change settings to force a match.
 
 The process query is read-only and does not require administrator privileges. It identifies the PoC root by the exact pinned Electron executable plus the explicit absolute app-directory argument, then follows `ParentProcessId` to include descendants. Other Electron executables are not treated as this PoC. A main process using the same binary with an unrecognized app argument is reported as ambiguous, not identified as this PoC; stop until a human can establish which app it belongs to. If process details are unavailable or the query fails, stop without elevation. If a matching PoC tree is found, do not launch another run or terminate it; use the existing safe-exit path if available. The absence of a matching process and restoration of the Windows work area are independent checks: neither substitutes for the other.
 
@@ -211,7 +211,7 @@ This live-read path is for a failed or uncertain operation only. Keep the PoC wi
 
 ## Phase A — Baseline
 
-1. Complete Phase 0 and record the initial Windows work area.
+1. Complete Phase 0 and record the initial monitor/work-area bounds, tool versions, Windows/display configuration, branch, and full commit SHA as the Phase A comparison reference.
 2. From the experiment directory, start the fixed Electron binary with the explicit baseline variant:
 
    ```powershell
@@ -248,9 +248,9 @@ This live-read path is for a failed or uncertain operation only. Keep the PoC wi
 
 ## Phase B — NoSendChanging
 
-Use a separate Electron process and a fresh Phase 0 preflight. Confirm Phase A's process has exited and its work area has returned to baseline before launch. Use the same single registration, **Remove and verify**, and **Safe exit** sequence as Phase A so release handling is comparable.
+Use a separate Electron process and a fresh Phase 0 preflight. Before launch, compare the Phase B branch and full commit SHA, Windows version/build, monitor count/geometry/resolution, DPI/scaling, taskbar configuration, Node.js/Electron/Koffi versions, and initial monitor/work-area bounds against the Phase A reference. Require exact matches. If any item differs or its Phase A value is unavailable, stop and do not launch Phase B. Also confirm Phase A's process has exited and its work area has returned to its own baseline. Use the same single registration, **Remove and verify**, and **Safe exit** sequence as Phase A so release handling is comparable.
 
-1. Complete a fresh Phase 0 and record the Phase B initial work area. Use a new log-name snapshot for this process.
+1. Complete a fresh Phase 0. Record the Phase B environment and work area, then complete the explicit Phase A/B equality check above. Use a new log-name snapshot for this process.
 2. Launch with only the variant value changed:
 
    ```powershell
@@ -335,9 +335,11 @@ Fill one column per independent process. If a run was not performed, use `NOT_RU
 |---|---|---|
 | Date/time and operator |  |  |
 | Windows version/build; display count/resolution/DPI/taskbar |  |  |
+| Node.js / Electron / Koffi versions |  |  |
 | Branch and commit SHA |  |  |
 | PowerShell run start time |  |  |
 | JSONL filename |  |  |
+| Phase A/B commit and environment equality gate | Phase A reference | PASS / FAIL / NOT_RUN |
 | Selected variant and logged flags |  |  |
 | Initial monitor/work-area bounds |  |  |
 | `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` |  |  |
