@@ -10,7 +10,7 @@
 
 ## 結論
 
-このWindowsホストは、専用Windows AppBar VMを今すぐ作成する候補として**適格と確認できなかった**。Hyper-Vに関連する一部の基盤が動作している証拠はあるが、現在ユーザーにVM管理権限がなく、Hyper-V機能状態・既存VM・仮想スイッチを確認できない。さらに、約7.9GiBの総RAMに対して調査時の空きが約1.3GB、C:の空き容量が約86.6GiBであり、Windows 11ゲストの最低要件と運用・チェックポイント用の余裕を安全に確保できるとは判断できない。
+このWindowsホストは、専用Windows AppBar VMを今すぐ作成する候補として**適格と確認できなかった**。Hyper-Vに関連する一部の基盤が動作している証拠はあるが、現在ユーザーにVM管理権限がなく、Hyper-V機能状態・既存VM・仮想スイッチを確認できない。さらに、約7.91 GiBの総RAMに対して調査時の空きは約1.03–1.30 GiB、C:の空き容量は約86.6 GiBであり、Windows 11ゲストの最低要件と運用・チェックポイント用の余裕を安全に確保できるとは判断できない。
 
 したがって、**このホストでのVM準備へは進まない**。第一推奨は、少なくとも16GiB RAMと150GiB以上の空きSSD容量を持つ、専用の物理Windowsテスト端末または別の適格Hyper-Vホストを候補として再評価すること。この容量値はWindowsの公式最低要件ではなく、ホストOS、6GiB程度のゲスト割当、更新、ログ、チェックポイント余地を見込んだ運用上の提案である。既存の独立端末の有無は未確認。調達・ライセンス・管理権限の確認が必要である。
 
@@ -28,7 +28,7 @@
 | OSレジストリ表示 | `CurrentVersion`レジストリ: `ProductName=Windows 10 Pro`, `EditionID=Professional`, `DisplayVersion=26H2`, `CurrentBuild=26300`, `UBR=9974`。 | 製品名表示がWindows 11と不一致。エディションIDはProfessionalだが、最終的なSKU/ライセンス状態は`NOT_CONFIRMED`。非昇格`DISM /Online /Get-CurrentEdition`は終了コード740で拒否された。管理者再試行なし。 |
 | CPU | NEC `PC-VKT10CZG7`、Intel Core i5-10210Y、4 cores/8 logical processors、x64。Intel製品仕様ではVT-x、EPT、VT-d、Execute Disable Bit対応。 | CPU型番自体の能力は確認できる。実ホストのUEFI設定、DEP有効状態、Hyper-Vへの機能公開は未確認。 |
 | CPU仮想化の実行状態 | `Win32_Processor`は`VirtualizationFirmwareEnabled=false`, `VMMonitorModeExtensions=false`, `SecondLevelAddressTranslationExtensions=false`。一方`systeminfo`は「ハイパーバイザーが検出され、要件を表示しない」、`HyperVisorPresent=true`、VBS稼働と報告。 | 結果が整合しないため実ホストのSLAT/VMX公開状態は`NOT_CONFIRMED`。現在ロード済みのHypervisorが要件表示を隠している可能性はあるが、このホストで新しいVMを作成できる証拠とは扱わない。 |
-| RAM | 約8,104 MiB（約7.9 GiB）。`systeminfo`時点のavailable memoryは1,335MB。別のCIM測定では空き値が約1.1GB相当で、測定時点により変動。 | Windows 11 VMの公式最低RAM要件は4GB。現在の空きRAMと総容量から、追加ゲストへの安全な割当余裕はないと判断。 |
+| RAM | 総容量約7.91 GiB。異なる時点の空きRAM測定は約1.03 GiBと約1.30 GiB。 | `systeminfo`とCIMから得たRAM量をGiBへ統一して記録。Windows 11 VMの公式最低要件は4 GB。測定時の空きRAMと総容量から、追加ゲストへの安全な割当余裕はないと判断。 |
 | C:ストレージ | 総容量約236.7GiB、空き約86.6GiB。 | Windows 11 VMは最低64GBの仮想ディスク容量を要し、更新・チェックポイント・証拠保存の余裕が不足。ドライブ媒体がSSDかは`NOT_CONFIRMED`。 |
 | Hyper-V関連 | Hyper-V PowerShell module 2.0.0.0と`Get-VM`コマンドを検出。VMMS (`vmms`) はRunning / Automatic。 | 管理ツールとサービスの存在・稼働は、VM作成資格や機能有効化の証明ではない。 |
 | Hyper-V機能状態 | `Get-WindowsOptionalFeature -Online`でHyper-V、VirtualMachinePlatform、Windows Hypervisor Platform、Sandbox等を照会したが、管理者権限が必要とのアクセス拒否。 | `NOT_CONFIRMED`。昇格再試行をしていない。 |
@@ -51,7 +51,7 @@
 | 候補 | 対話型GUI / AppBarの代表性 | 分離・監視・復元 | 現ホストに対する判断 |
 |---|---|---|---|
 | 専用Hyper-V Windows 11 VM | WindowsゲストのExplorerとタスクバーを持つ対話セッションを作る候補。VMConnect Enhanced SessionはRDPベースで解像度変更等が可能だが、仮想ディスプレイ/RDP上の作業領域、AppBar、スクリーンショットが物理コンソールと同等かは実機確認が必要。 | 固定VM ID、外部Supervisor、ゲストRunner/Sentinel、チェックポイントで他VMから分離しやすい。復元はVM単位に制限できる。 | アーキテクチャ上の第一候補のまま。ただし**このホストは現在不適格/未確認**。権限、既存VM、SKU、RAM、ディスクの確認と解消前に構築しない。 |
-| Windows Sandbox | Pro等で利用できる使い捨てGUI環境。AppBarをsandboxデスクトップ上で呼べる可能性はあるが、Shell/APIの意味論、解像度、タスクバー、外部監視は未確認。 | 終了時に内容が破棄される。標準構成ではネットワーク・クリップボード等の統合が有効な場合があり、構成を狭める必要がある。長期baseline/checkpointやSupervisorとの状態管理には合いにくい。 | Sandbox feature stateもアクセス拒否で未確認。公式推奨RAMは8GB。本ホストは約7.9GiBの総RAM、調査時の空きは約1.3GBで、ホストの余力を残しつつSandboxへ推奨容量を割り当てられないため推奨しない。[Sandbox configuration](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file) |
+| Windows Sandbox | Pro等で利用できる使い捨てGUI環境。AppBarをsandboxデスクトップ上で呼べる可能性はあるが、Shell/APIの意味論、解像度、タスクバー、外部監視は未確認。 | 終了時に内容が破棄される。標準構成ではネットワーク・クリップボード等の統合が有効な場合があり、構成を狭める必要がある。長期baseline/checkpointやSupervisorとの状態管理には合いにくい。 | Sandbox feature stateもアクセス拒否で未確認。公式推奨RAMは8 GB。本ホストの空きRAM測定は約1.03–1.30 GiBで、ホストの余力を残しつつSandboxへ推奨容量を割り当てられないため推奨しない。[Sandbox configuration](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file) |
 | 既存の独立した物理Windows環境 | 専用GPU/モニターを持つ物理Windows対話セッションなら製品環境への代表性が最も高い可能性がある。1920×1080/96 DPI/タスクバーを物理的に固定できる。 | ホストとは物理的に分離できる。イメージ/ディスク復元、外部電源/プロセス監視、ログ搬出の方法は機器次第。 | 利用可能な別端末の存在・SKU・ライセンス・制御手段は未確認。利用可能なら有力な代替。 |
 | 専用のクラウド/リモートWindows VM | Windows GUIをRDPで操作できる候補。ただしRDPセッションの仮想表示、Shell、AppBar、画面キャプチャの動作がローカル物理環境と同じとは限らない。 | VMスナップショット・外部監視候補はあるが、クラウド管理権限、コスト、ネットワーク、データ保持、ライセンスを追加で決める。具体的なサービス/リージョン/稼働時間が未選定のため価格は未算定。 | 現ホストの不足を避けられる候補だが費用・ライセンス・AppBar代表性は未確認。リモート専用デスクトップ検証としてPoCを先行し、AppBar適合は別判定にすべき。 |
 
@@ -66,8 +66,8 @@ Windows 11のVM要件はGeneration 2、Secure Boot/TPM、最低2 vCPU、4GB RAM�
 | 設定 | 提案 | 理由・未確定点 |
 |---|---|---|
 | Guest OS | Windows 11 Pro x64、Generation 2、Secure BootとvTPM有効 | Windows 11のVM要件に合う。Proを選ぶのはHyper-VゲストのGUI/Shell試験に十分なSKU候補だから。Guestライセンス/activationは別途権利確認が必要。 |
-| vCPU | 2 vCPUで開始 | Windows 11 VMの公式最低値。現物理CPUが4C/8Tでも、この現ホストはVMを実行するリソース余裕がない。 |
-| RAM | 6GiB固定を計画値、4GiBを最低ラインとする | Windows 11最低値は4GB。固定6GiBはElectron/GUI/計測の実験用推奨で、Hyper-V公式必須値ではない。安定性/host headroomを優先し、Dynamic Memoryは最初の再現性評価で避ける。推奨ホスト総RAMは16GiB以上。 |
+| vCPU | 2 vCPUで開始 | Windows 11 VMの公式最低値。現CPUが4C/8Tでも、この現ホストはVMを実行するリソース余裕がない。 |
+| RAM | 6 GiB固定を計画値、公式最低ライン4 GB | Windows 11最低値はMicrosoft資料上4 GB。固定6 GiBはElectron/GUI/計測の実験用推奨で、Hyper-V公式必須値ではない。安定性/host headroomを優先し、Dynamic Memoryは最初の再現性評価で避ける。推奨ホスト総RAMは16 GiB以上。 |
 | VHDX | 最大100GiBの動的拡張VHDX、baseline/checkpoint用に追加余白。空きSSD 150GiB以上を運用目標とする | Guestの公式最低ディスクは64GB。100GiBは更新・固定PoC依存・ログを考慮した計画上限、150GiBはcheckpoint増分とホスト余裕を含む運用目標であり、公式要件ではない。 |
 | 保存先 | VM設定・VHDX・checkpoint・exportを、管理者が選定した専用のローカルSSDディレクトリへ分ける。固定パスとACLを記録。 | 現C:空き約86.6GiBは推奨余裕を満たさない。既存VM/ユーザーデータを上書きしない。別ディスク利用可否は未確認。 |
 | VMスイッチ | 初期baseline/実験中はネットワーク未接続を基本。必要な準備時更新は別途承認された短時間・限定経路でのみ。 | Internetからの依存取得を避け、ネットワーク由来の変動/攻撃面を縮小。Supervisor通信・artifact搬出は後続WPで狭い固定経路を設計する。 |
@@ -116,7 +116,7 @@ AVT-001–AVT-005とWP-1のAcceptanceは、Phase 1だけでは完了しない。
 
 | Task | 必要な証拠 | 現在 |
 |---|---|---|
-| AVT-001 host資格 | 管理者が確認したhost SKU/build/firmware/SLAT/DEP/Hyper-V feature、管理権限、既存VM/switch inventory、resource/storage headroom | **PARTIAL / NOT_CONFIRMED**。OS/CPU型番/RAM/storage等は記録、機能・VM inventory・権限は確認不全。 |
+| AVT-001 host資格 | 管理者が確認したhost SKU/build/firmware/SLAT/DEP/Hyper-V feature、管理権限、既存VM/switch inventory、resource/storage headroom | **MANUAL_PENDING**。OS/CPU型番/RAM/storageの証拠は一部取得済み。SKU、機能状態、VM inventory、Hyper-V権限の事実は`NOT_CONFIRMED`で、人間の確認が残る。 |
 | AVT-002 guest要件・ライセンス | Guest Windows license/activation根拠、費用、VM resource approval、画面/DPI/taskbar/対話sessionの再現結果 | **NOT_RUN**。設計案のみ。 |
 | AVT-003 isolation/control | VM GUIDと保存先の承認、switch/network/integration/credential/VMConnect境界、未許可対象拒否のテスト | **NOT_RUN**。実VM/brokerなし。 |
 | AVT-004 baseline/recovery | Clean baseline/checkpoint ID、capture-before-restore/hash、対象VM固定、復元とpost-restore測定 | **NOT_RUN**。checkpointを作成・適用していない。 |
@@ -129,7 +129,7 @@ AVT-001–AVT-005とWP-1のAcceptanceは、Phase 1だけでは完了しない。
 |---|---|
 | Work Package | WP-1 — 専用Windows環境の資格確認と隔離 |
 | Task IDs | `AVT-001`–`AVT-005` |
-| 仕様/計画/タスク | `specs/windows-appbar-autonomous-validation/spec.md` (`AV-001`, `AV-003`, `AV-004`, `AV-005`), `plan.md`, `tasks.md` |
+| 要求/仕様/計画/タスク | `docs/requirements.md`: `R-02`（作業領域予約。安全性・復旧性の関連要求も対象）。`specs/windows-appbar-autonomous-validation/spec.md`: `AV-001`, `AV-003`, `AV-004`, `AV-005`; `plan.md`; `tasks.md`: `AVT-001`–`AVT-005` |
 | 今回の調査成果 | `docs/spikes/windows-appbar-core/wp1-host-qualification.md` |
 | Issue候補の目的 | 資格のある専用Windows環境を選び、隔離・対話GUI・baseline/checkpoint・証拠搬出をAppBar実験前に検証する。 |
 | 完了条件 | Phase 4の各AVT証拠をそろえ、未確認を残さず人間が環境構成とライセンスを承認。AppBar APIは一切実行しない。 |

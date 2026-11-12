@@ -64,7 +64,7 @@
 
 ### WP-1資格確認の更新 (2026-11-12)
 
-後続の非昇格確認では、`systeminfo`がWindows 11 Pro build 26300とHypervisor検出を報告し、VBSが稼働中、VMMSがRunning、Hyper-V PowerShell moduleが存在することを確認した。`Get-ComputerInfo`/レジストリには製品名の不一致が残り、Hyper-V optional feature、`Get-VM`、`Get-VMSwitch`はアクセス拒否だった。約7.9GiBのRAM、測定時約1.3GBの空きRAM、約86.6GiBの空きC:容量も確認した。これらはVM運用余力を確認するのに不足しており、現在のホストはVM構築候補として保留とする。詳細値、公式資料、代替候補、承認事項は[資格確認レポート](wp1-host-qualification.md)を参照。権限昇格やVM/OS変更は行っていない。
+後続の非昇格確認では、`systeminfo`がWindows 11 Pro build 26300とHypervisor検出を報告し、VBSが稼働中、VMMSがRunning、Hyper-V PowerShell moduleが存在することを確認した。`Get-ComputerInfo`/レジストリには製品名の不一致が残り、Hyper-V optional feature、`Get-VM`、`Get-VMSwitch`はアクセス拒否だった。RAMは総容量約7.91 GiB、空きの測定値は異なる時点で約1.03–1.30 GiB、C:空き容量は約86.6 GiBだった。これらはVM運用余力を確認するのに不足しており、現在のホストはVM構築候補として保留とする。詳細値、公式資料、代替候補、承認事項は[資格確認レポート](wp1-host-qualification.md)を参照。権限昇格やVM/OS変更は行っていない。
 
 ## 3. 環境候補の比較
 
