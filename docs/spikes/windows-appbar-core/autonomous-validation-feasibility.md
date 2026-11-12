@@ -70,12 +70,12 @@
 
 | 候補 | 分離・ホスト影響 | GUI / AppBar | 再現・復元 | 自動化・保守 | 費用・制約 | Stage 1評価 |
 |---|---|---|---|---|---|---|
-| 専用Hyper-V Windows 11 VM | ゲスト内の作業領域はホストと別。ホスト側Supervisorが対象VM IDを固定すれば他VMを保護できる。共有クリップボード・ドライブ・ネットワークは無効を基本にする。 | VMConnect等で対話デスクトップを利用できる候補。AppBar APIの仮想ディスプレイ上の挙動とGUI自動操作はSpikeで確認が必要。 | 固定ゲスト構成とチェックポイントを再利用できる。復元はVM単位で対象を固定する。画面解像度・DPI・タスクバー状態は毎回ゲスト内で検証する。 | ホスト側監視とゲスト側GUI Runnerを分けられる。PowerShell Directはネットワーク設定に依存しないが、ホスト側Hyper-V管理者権限とゲスト資格情報を要求する。 | Windows SKU・ゲストライセンス、CPU/RAM/SSD余力、管理権限が必要。Hyper-V要件にはPro/Enterprise等とCPU仮想化要件がある。 | 第一候補（条件付き）。専用VM上のAppBar意味論と管理権限をStage 2で資格確認。 |
+| 専用Hyper-V Windows 11 VM | ゲスト内の作業領域はホストと別。ホスト側Supervisorが対象VM IDを固定すれば他VMを保護できる。ネットワークとVMConnect共有リソースは許可リスト方式で絞る。 | VMConnect等で対話デスクトップを利用できる候補。Enhanced SessionはRDPベースでRemote Desktop有効化を要し、clipboard/printers/audio playbackは既定共有。AppBar APIの仮想ディスプレイ上の挙動とGUI自動操作はSpikeで確認が必要。 | 固定ゲスト構成とチェックポイントを再利用できる。復元はVM単位で対象を固定する。画面解像度・DPI・タスクバー状態は毎回ゲスト内で検証する。 | ホスト側監視とゲスト側GUI Runnerを分けられる。PowerShell Directはネットワーク設定に依存しないが、ホスト側Hyper-V管理者権限とゲスト資格情報を要求する。 | Windows SKU・ゲストライセンス、CPU/RAM/SSD余力、管理権限が必要。Hyper-V要件にはPro/Enterprise等とCPU仮想化要件がある。 | 第一候補（条件付き）。専用VM上のAppBar意味論と管理権限をStage 2で資格確認。 |
 | Windows Sandbox | ゲストの作業領域はSandbox内。終了時に内容を破棄できる。 | GUIはSandboxウィンドウ越し。内部Win32 APIは実行可能な候補だが、実際のExplorer/AppBarと表示測定を確認する必要がある。 | 起動ごとの初期化が容易。ただし既定でネットワークとクリップボードが有効、Sandbox表示サイズは構成ファイルで指定できないと公式資料に記載。ログ回収用の書き込み共有はホスト境界を広げる。 | ゲスト消滅の検知は可能でも、ゲスト内プロセス終了コード・作業領域の外部測定・証拠回収を一貫させにくい。 | 対応SKU/機能有効化が必要。使い捨ての短いGUI試験には有力だが、長期の対話デスクトップとSupervisor連携は別途検証。 | Hyper-Vの条件が満たせない場合の限定比較候補。最初の反復基盤には推奨しない。 |
 | 専用物理Windows端末 | 開発PCと物理的に分離できる。対象端末以外のVM/ホストへ触れない設計にできる。 | 実機のWindows shell・表示デバイスで最も現実に近い。画面・タスクバー・DPIの制御が可能。 | 端末構成を固定できるが、スナップショット相当の復旧やハードウェア状態の再現がVMより難しい。 | リモート接続、対話ログオン、保守・電源制御が必要。無人化は別途構築。 | 端末購入・Windowsライセンス・保守費用が必要。 | VMと実機との差が重要と判明した場合の比較対象。初期案にはしない。 |
 | 他の独立GUI環境（クラウドWindows VM等） | 開発PCと別ホストにできる。接続サービスやリモート管理権限の境界が必要。 | RDP/仮想GPU/リモートセッション上のGUI。ローカルVMConnectと同様、AppBar挙動が物理コンソールと同一とは限らない。 | イメージ・スナップショットで再現できる候補。解像度/DPI・GPU・ログオン方式の差を測る。 | リモート制御・ログ回収・ゲスト停止の監視は構築可能だが、サービス固有の権限・接続・費用を要する。 | 利用料、ライセンス、ネットワーク、アカウント管理が必要。価格は選択肢・利用時間により変わるため未算定。 | Hyper-Vが不可で、隔離済みの既存環境が利用可能な場合に再評価。 |
 
-Windows Sandboxは使い捨てという利点がある一方、既定統合機能と画面サイズ制約、外部監視・証拠回収の難しさが今回の長時間・反復要件に合いにくい。Hyper-Vのチェックポイントは復旧に使えるが、AppBarの正常解除を証明するものではない。VMConnectの拡張セッション等のリダイレクト機能を用いる場合、クリップボード・ドライブ等を無効にできる設定を選び、VM接続経路自体は別途確認する。
+Windows Sandboxは使い捨てという利点がある一方、既定統合機能と画面サイズ制約、外部監視・証拠回収の難しさが今回の長時間・反復要件に合いにくい。Hyper-Vのチェックポイントは復旧に使えるが、AppBarの正常解除を証明するものではない。VMConnect Enhanced SessionはRDPベースで、ゲストRemote Desktopを必要とする。Microsoft資料上、clipboard、printers、audio playbackは既定で共有され、drives、removable storage、USB、smart cards等も選択して共有でき、audio recordingも設定可能である。したがってEnhanced Sessionを使う場合は、ホスト統合リソースを接続単位でallowlist化し、GUI操作に不要な共有を無効化してゲスト側から非公開を確認する。許可状態を検証できなければBasic Sessionを使うか環境を停止する。[Enhanced Session and device sharing](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/enhanced-session-mode)
 
 ## 4. 3要素の責任分界
 

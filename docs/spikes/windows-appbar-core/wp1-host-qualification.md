@@ -71,9 +71,10 @@ Windows 11のVM要件はGeneration 2、Secure Boot/TPM、最低2 vCPU、4GB RAM�
 | VHDX | 最大100GiBの動的拡張VHDX、baseline/checkpoint用に追加余白。空きSSD 150GiB以上を運用目標とする | Guestの公式最低ディスクは64GB。100GiBは更新・固定PoC依存・ログを考慮した計画上限、150GiBはcheckpoint増分とホスト余裕を含む運用目標であり、公式要件ではない。 |
 | 保存先 | VM設定・VHDX・checkpoint・exportを、管理者が選定した専用のローカルSSDディレクトリへ分ける。固定パスとACLを記録。 | 現C:空き約86.6GiBは推奨余裕を満たさない。既存VM/ユーザーデータを上書きしない。別ディスク利用可否は未確認。 |
 | VMスイッチ | 初期baseline/実験中はネットワーク未接続を基本。必要な準備時更新は別途承認された短時間・限定経路でのみ。 | Internetからの依存取得を避け、ネットワーク由来の変動/攻撃面を縮小。Supervisor通信・artifact搬出は後続WPで狭い固定経路を設計する。 |
-| File/clipboard共有 | 既定は無効。ログ搬出はSupervisorが許可したrun-IDのディレクトリのみ、回収後にhash/ACL確認。クリップボード・mapped drivesは無効。 | ゲスト侵害や誤操作のホスト到達範囲を抑える。回収方式はWP-2/3でLevel 2設計承認が必要。 |
+| VMConnect統合リソース | Basic Sessionを先に評価する。Enhanced Sessionを使う場合、GUI操作に必要なkeyboard/mouse/displayだけを許可し、clipboard、printer、audio playback/recording、local/removable drives、USB、smart cards、microphone、その他のlocal-device redirectionを無効にする。接続ごとに許可状態を確認する。 | Microsoft資料ではEnhanced SessionはRDPを使い、clipboard、printers、audio playbackを既定で共有する。追加のdrive/USB/smart-card共有も選択可能で、audio recordingも設定できる。不要な共有を切れない場合はBasic Sessionへ戻すか停止する。Enhanced Sessionはゲスト側Remote Desktopを必要とし、ゲストで有効にすること自体も人間の承認対象。[Enhanced Session and device sharing](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/enhanced-session-mode) |
+| File/artifact共有 | clipboardやmapped driveを使わない。外部Supervisorが許可したrun-IDの成果物だけを、別途設計・承認された回収経路で搬出し、回収後にhash/ACLを確認する。 | ゲスト侵害や誤操作のホスト到達範囲を抑える。回収方式はWP-2/3でLevel 2設計承認が必要。 |
 | 対話セッション | 通常権限の専用ローカルユーザーをゲスト内に作成。管理者用資格情報は別保管し、Codex/Runnerへ渡さない。 | UI操作は対話ログオンデスクトップで行う。PowerShell Direct単独はGUIセッションを作らない。 |
-| 操作 | まずVMConnect Basic/Enhancedを比較。Enhanced Sessionは解像度変更が可能だがRDPベース。1920×1080、100%/96 DPI、単一仮想monitor、標準下部taskbarを毎回照合。 | VMConnect Enhanced Sessionのサイズ変更対応は確認済み資料にあるが、96 DPI固定やAppBar互換は未検証。[VMConnect local resources](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/use-local-resources-virtual-machine-connection) |
+| 操作 | まずVMConnect Basic Sessionを試し、GUI操作・画面条件が不足する場合に限り、承認後にEnhanced Sessionを比較する。Enhanced SessionではLocal Resources設定で必要最小限の共有を明示し、1920×1080、100%/96 DPI、単一仮想monitor、標準下部taskbarを毎回照合する。 | Enhanced SessionはRDPベースで、ゲスト側Remote Desktopが必要。Enhanced Sessionのサイズ変更・高DPI対応は資料上の機能だが、96 DPI固定やAppBar互換は未検証。[VMConnect local resources](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/use-local-resources-virtual-machine-connection)、[Enhanced Session and device sharing](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/enhanced-session-mode) |
 | checkpoint | セットアップ・更新後、VMを正常shutdownしたクリーンbaselineにProduction Checkpointを作成する案。各失敗runのログ/hash回収後、承認済みGUID/checkpoint IDだけを復元し、起動後baselineを再測定。 | Production CheckpointはVSS等を使い、メモリ状態を保存しない。Standard checkpointとの選択は対話セッション復元との比較が必要。VM復元はAppBar正常解除を意味しない。[Hyper-V checkpoints](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/checkpoints) |
 | Supervisor | Hyper-V権限をCodexへ直接付与しない。固定VM GUIDと固定checkpointを操作する最小broker/JEA等をWP-2で別途設計・承認。 | `Hyper-V Administrators`は強いVM管理権限を持つため、Investigation Agentに直接付与しない。PowerShell DirectもHyper-V管理者とGuest資格情報を要する。[PowerShell Direct requirements](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/powershell-direct) |
 
@@ -87,9 +88,13 @@ Windows 11のVM要件はGeneration 2、Secure Boot/TPM、最低2 vCPU、4GB RAM�
 
 1. 管理者がOS SKU/ライセンス、firmware virtualization、Hyper-V feature state、既存VM/VM switch、空き容量、Hyper-V管理ユーザーを確認する。既存VM/switch一覧と対象外IDを記録し、VM作成時に名前だけで選択しない。
 2. 適格ホストと専用保存先を承認し、Guest Windowsライセンス/インストール媒体、2 vCPU、6GiB RAM、100GiB dynamic VHDX、Generation 2/Secure Boot/vTPMを明示承認する。より小さい構成に変更する場合は先に受け入れ条件を再確認する。
-3. 専用VM名とGUIDを作成記録に固定。ネットワーク未接続、clipboard/mapped folders無効を基本とし、ログ搬出チャネルを別途承認する。
+3. 専用VM名とGUIDを作成記録に固定。ネットワーク未接続を基本とし、ログ搬出チャネルを別途承認する。VMConnect Basic/Enhancedの利用モードと統合リソースallowlistも記録する。
 4. Windows 11 Proゲストをインストールし、更新・Electron/Koffi/固定PoC等の必要物を承認済み方法で準備する。通常権限の対話ユーザーと、管理者用アカウントを分離する。秘密情報をGitやmanifestへ保存しない。
-5. VMConnectでログオンし、再起動後に自動または手動で同じ対話ユーザーのGUIへ到達できることを確認。まずEnhanced Sessionで1920×1080/96 DPI/単一画面/標準taskbarを試す。表示条件が維持できなければ別の表示方式を試し、条件の変更を記録する。
+5. VMConnect Basic Sessionでログオンし、再起動後も同じ対話ユーザーのGUIへ到達できることを確認する。必要な場合に限りEnhanced Sessionを比較する。
+   - Enhanced Sessionを使う前に、ゲストのRemote Desktop有効化について人間の承認を得る。
+   - 接続のたびにVMConnectのLocal Resources設定を確認し、clipboard、printers、audio playbackを無効にする。`More`ではlocal/removable drives、USB、smart cards、その他のlocal devicesをすべて無効にする。audio settingsではplaybackとrecordingを無効にし、microphone入力も共有しない。許可するのはGUI操作に必要なkeyboard/mouse/displayのみとする。
+   - 設定画面の証拠を記録する。接続後はゲストの`This PC`等にhost resourceが現れないことを確認し、接続モードと実際に見えるリソースを記録する。
+   - 許可状態を設定・検証できない場合、または許可した入力・表示だけではGUIを操作できない場合はEnhanced Sessionを使わず停止する。各方式で1920×1080/96 DPI/単一画面/標準taskbarが維持されるか記録する。
 6. AppBarを実行せず、ホストwork area、他VMのGUID/電源状態、Guest work area/画面/DPI/taskbar/Explorer、仮想switch/統合機能設定をbaseline記録する。
 7. Guestを正常shutdownし、Production Checkpointを作成。VM GUID、checkpoint ID、保存先、作成時刻、ベースイメージ/commitを記録する。
 8. ログのみの無害なファイルをGuestで生成し、許可済みチャネルで外部回収・hash検証する。checkpoint復元後、同一VM GUID、Guest起動、GUI条件、work area、ファイルbaselineを確認する。復元成功とAppBar releaseを別々の状態として記録する。
@@ -103,9 +108,10 @@ VMの作成・変更・起動・checkpoint・restoreは明示承認後の作業�
 | ホスト隔離 | VM start/stop/restore前後のホスト1920×1080・96 DPI・work area測定値が一致。ホストでElectron/AppBar登録を実行していないことをSupervisor監査ログで示す。 |
 | 他VM保護 | 開始前後の既存VM GUIDと状態一覧が一致し、対象VM以外にSupervisor操作がない。権限境界テストで未許可GUIDが拒否される。 |
 | 対話GUI再現 | Guest environment recordと画面証拠にWindows SKU/build、Explorer/taskbar、monitor数、1920×1080、96 DPI、work area baseline、対話session IDがある。再起動後も同条件を再確認。 |
+| VMConnect統合リソース隔離 | 接続モードと接続ダイアログの設定証拠があり、Enhanced Sessionの場合は許可リストが接続ごとに適用される。ゲスト側にclipboard、printer、audio、drive、USB、smart-card等の未許可host resourceが見えない。Remote Desktop有効化の承認記録がある。 |
 | Electron無害起動 | 指定されたElectron診断画面をゲスト対話セッションで起動・正常終了。AppBar API未呼出しをコード/ログで証明。プロセス終了コードとGuest Sentinelの終了記録が一致。 |
 | 外部監視 | Electron停止とGuest heartbeat/VM停止を別々に識別し、期限超過でもホスト・別VMを操作しない。run lockが1件を超えない。 |
-| artifact回収 | run ID・commit SHA・manifest・JSONL・画面証拠をGuest外の隔離場所へ回収し、hash/サイズを照合。clipboard/mapped driveに依存しない。 |
+| artifact回収 | run ID・commit SHA・manifest・JSONL・画面証拠をGuest外の隔離場所へ回収し、hash/サイズを照合。clipboard/mapped driveに依存しない。VMConnectで共有されるhost resourceがallowlist以外にないことも確認する。 |
 | restore | Artifact回収後、固定GUID/固定checkpointだけをrestoreし、VM状態・Guest baselineを確認。復元失敗/ID不一致では停止。AppBar release statusを復元から推定しない。 |
 
 VM自体が停止/ハングした場合、ゲスト内Sentinelは外部確認を続けられないため、Host Supervisorが状態を観測する。AppBar解除が不明な場合はrelease=`UNKNOWN`のまま保持する。承認済みの対象VM以外を停止・restoreしない。復元成功は環境containmentの結果であり、AppBar正常解除の証拠ではない。
@@ -134,7 +140,7 @@ AVT-001–AVT-005とWP-1のAcceptanceは、Phase 1だけでは完了しない。
 | Issue候補の目的 | 資格のある専用Windows環境を選び、隔離・対話GUI・baseline/checkpoint・証拠搬出をAppBar実験前に検証する。 |
 | 完了条件 | Phase 4の各AVT証拠をそろえ、未確認を残さず人間が環境構成とライセンスを承認。AppBar APIは一切実行しない。 |
 | 依存 | WP-1以前の実装依存はなし。まず適格ホスト/ライセンス/権限の人間確認が必要。 |
-| 承認 | 対象ホスト選択、Guest OSライセンス、VM作成/保存先/資源、Hyper-V enablement/admin permissions、switch/network/clipboard/share/credentials、checkpoint/restore、GUI操作と外部Supervisorの権限。 |
+| 承認 | 対象ホスト選択、Guest OSライセンス、VM作成/保存先/資源、Hyper-V enablement/admin permissions、switch/network、VMConnect Basic/Enhanced選択、Enhanced時のGuest Remote Desktop有効化と接続単位のresource allowlist、credentials、checkpoint/restore、GUI操作と外部Supervisorの権限。 |
 | 登録状態 | **未登録**。人間によるWork Package承認後にのみIssue化する。Issue登録は実装/VM操作の承認ではない。 |
 
 ## 次に必要な人間の判断
@@ -142,8 +148,8 @@ AVT-001–AVT-005とWP-1のAcceptanceは、Phase 1だけでは完了しない。
 1. **実行環境:** 現ホストを使わず、別の専用物理Windows端末または少なくとも16GiB RAM/150GiB空きSSDを持つ別Hyper-Vホストを選ぶか。現ホスト継続を希望する場合は、RAM/storage余裕をどう確保するか。
 2. **資格情報の確認:** 管理者にWindows SKU/ライセンス、Hyper-V/Sandbox機能状態、firmware virtualization、既存VM・switch一覧を読み取り確認してもらう。権限拒否された状態のままVM作成に進まない。
 3. **ライセンス:** Guest Windows 11 Proの使用権・activation方法をライセンス管理者が確定する。ホストOSライセンスの流用を前提にしない。
-4. **資源・隔離方針:** 2 vCPU/6GiB RAM/最大100GiB VHDX、専用保存先、network-off baseline、clipboard/mapped folders無効、VMConnect方式、ログ回収経路を承認するか変更案を選ぶ。
-5. **権限と復元:** CodexにHyper-V Administrators権限を直接与えない設計を維持し、固定VM GUID/checkpoint IDだけを扱うSupervisor/brokerを別WPで設計する。VM create/start/restoreのどこまでを後続Issueに含めるか明示する。
+4. **資源・隔離方針:** 2 vCPU/6GiB RAM/最大100GiB VHDX、専用保存先、network-off baseline、VMConnect Basic/Enhancedの利用条件、Enhanced Sessionを使う場合のGuest Remote Desktop有効化、clipboard/printer/audio/drives/USB/smart-card等のリダイレクトallowlist、ログ回収経路を承認するか変更案を選ぶ。接続後に許可外のhost resourceがゲストから見える場合は利用を停止する。
+5. **権限と復元:** CodexにHyper-V Administrators権限を直接与えない設計を維持し、固定VM GUID/checkpoint IDだけを扱うSupervisor/brokerを別WPで設計する。VM create/start/restoreのどこまでを後続Issueに含めるか明示する。Enhanced Sessionを選択する場合は、ゲストRemote Desktopの有効化と最小リソースallowlistを別に承認する。
 6. **Issue登録:** 上記の選択を反映したWP-1候補を人間が承認し、登録を明示指示する。登録のみではVM作成・設定・実装を開始しない。
 
 ## 公式資料
@@ -153,6 +159,7 @@ AVT-001–AVT-005とWP-1のAcceptanceは、Phase 1だけでは完了しない。
 - [Windows 11 requirements](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements)
 - [Install Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-install)
 - [Use local resources on Hyper-V with VMConnect](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/use-local-resources-virtual-machine-connection)
+- [Share devices with Hyper-V Windows virtual machines (Enhanced Session)](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/enhanced-session-mode)
 - [Using Hyper-V checkpoints](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/checkpoints)
 - [Manage Windows virtual machines with PowerShell Direct](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/powershell-direct)
 - [Windows 11 licensing for virtual desktops](https://www.microsoft.com/licensing/guidance/Windows-11-Licensing-for-Virtual-Desktops)
