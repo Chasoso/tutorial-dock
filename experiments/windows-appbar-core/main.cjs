@@ -492,7 +492,7 @@ function suppressDiagnosticEventIfStopped() {
 function enqueueDeferredPositionDiagnostic(label, event) {
   try {
     if (suppressDiagnosticEventIfStopped()) return;
-    deferredPositionDiagnostics.enqueue(label, event);
+    deferredPositionDiagnostics.enqueue(label, event, event.kind !== 'win32-message');
     scheduleDeferredDiagnosticFlush();
   } catch {
     // Native callbacks must not log, measure, or let a diagnostic failure escape.
@@ -603,6 +603,7 @@ function flushDeferredPositionDiagnostics() {
     if (deferredDiagnosticsStopped || shutdownRequested || appBarState === STATE.REMOVING) {
       if (stoppedDiagnosticSummary) {
         stoppedDiagnosticSummary.queuedLabelCount += discarded.queuedLabelCount;
+        stoppedDiagnosticSummary.queuedEntryCount += discarded.queuedEntryCount;
         stoppedDiagnosticSummary.queuedEventCount += discarded.queuedEventCount;
         stoppedDiagnosticSummary.overflowDroppedCount += discarded.droppedCount;
       }
@@ -610,6 +611,7 @@ function flushDeferredPositionDiagnostics() {
       record('position-diagnostic-queue-discarded', {
         reason: 'capture-unavailable-or-lifecycle-ending',
         queuedLabelCount: discarded.queuedLabelCount,
+        queuedEntryCount: discarded.queuedEntryCount,
         queuedEventCount: discarded.queuedEventCount,
         overflowDroppedCount: discarded.droppedCount,
         suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
@@ -667,6 +669,7 @@ function stopDeferredPositionDiagnostics(reason) {
   stoppedDiagnosticSummary = {
     reason,
     queuedLabelCount: discarded.queuedLabelCount,
+    queuedEntryCount: discarded.queuedEntryCount,
     queuedEventCount: discarded.queuedEventCount,
     overflowDroppedCount: discarded.droppedCount,
     suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
@@ -680,6 +683,7 @@ function recordStoppedDiagnosticSummary() {
   const pendingSummary = stoppedDiagnosticSummary ?? {
     reason: 'events-suppressed-after-diagnostics-stopped',
     queuedLabelCount: 0,
+    queuedEntryCount: 0,
     queuedEventCount: 0,
     overflowDroppedCount: 0,
     suppressedAfterStopCount: 0,

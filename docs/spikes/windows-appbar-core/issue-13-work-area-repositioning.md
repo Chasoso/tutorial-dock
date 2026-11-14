@@ -12,7 +12,7 @@ Runtime results for both runs in this Spike are `MANUAL_PENDING`. Codex did not 
 
 - Added deferred observation hooks for `WM_SETTINGCHANGE`, `WM_WINDOWPOSCHANGING`, and `WM_WINDOWPOSCHANGED`, in addition to existing AppBar notifications and Electron `show`/`move`/`resize` events.
 - Captured the message ID, safe scalar `wParam` value, raw parameter bytes, observation time, event sequence, and AppBar state. `WM_SETTINGCHANGE.wParam` is identified as `SPI_SETWORKAREA` when it equals `0x002F`.
-- Kept the existing bounded/coalescing deferred diagnostic queue. Native hooks do not measure window geometry or write files.
+- Kept the deferred queue bounded at 8 pending entries. Each Win32 message observation is a separate FIFO entry, so repeated message names do not coalesce timestamps, sequence numbers, or scalar wParam values. Electron move/resize observations retain their existing coalescing. Arrivals beyond the cap are counted and emitted as position-diagnostic-queue-overflow; any overflow makes the run incomplete for message-order conclusions.
 - Deliberately do not dereference `WM_SETTINGCHANGE.lParam` or parse the `WINDOWPOS*` pointer. The installed Electron API exposes message parameters as Buffers, but this Spike does not establish a safe lifetime/copy contract for the pointed-to native structures.
 - Added an opt-in `showInactive()` comparison. Default behavior is unchanged. The comparison mode requires `TUTORIAL_DOCK_SPIKE_POSITION_VARIANT=nosendchanging`; it only omits the call when `TUTORIAL_DOCK_SPIKE_SHOW_INACTIVE=omit`. The control uses `show`. Invalid values fail closed before Electron starts.
 - Preserved AppBar registration, reservation, `SetWindowPos` flags and arguments, release verification, Safe exit, and the default Baseline mode.
@@ -113,7 +113,7 @@ Assess work-area reservation, window position, visibility/rendering, release ver
 Interpretation is limited to evidence:
 - A different position in B may support an association with the `showInactive()` call path, but does not alone prove the internal cause.
 - The recorded Windows messages may support or weaken the work-area-notification/position-adjustment hypothesis; event order alone does not prove Chromium's internal handler caused movement.
-- Missing/coalesced events, dropped queue entries, unequal environments, or inconsistent release evidence make the result inconclusive.
+- A recorded queue overflow (position-diagnostic-queue-overflow), unequal environments, or inconsistent release evidence makes the message-order result inconclusive. Individual Win32 observations are not coalesced; Electron move/resize samples may be coalesced.
 - Do not add a permanent offset, re-position loop, AppBar notification handling, or production behavior from these observations. Any corrective change requires a separately reviewed decision.
 
 ## Official API references
