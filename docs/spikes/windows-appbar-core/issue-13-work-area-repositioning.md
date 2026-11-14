@@ -113,7 +113,7 @@ Assess work-area reservation, window position, visibility/rendering, release ver
 Interpretation is limited to evidence:
 - A different position in B may support an association with the `showInactive()` call path, but does not alone prove the internal cause.
 - The recorded Windows messages may support or weaken the work-area-notification/position-adjustment hypothesis; event order alone does not prove Chromium's internal handler caused movement.
-- A recorded queue overflow (position-diagnostic-queue-overflow), unequal environments, or inconsistent release evidence makes the message-order result inconclusive. Individual Win32 observations are not coalesced; Electron move/resize samples may be coalesced.
+- A `position-diagnostic-queue-overflow` event, or a `position-diagnostic-queue-stopped` summary with `queuedEventCount > 0`, means observations were dropped or remained unflushed; treat the message-order result as inconclusive. Unequal environments or inconsistent release evidence also invalidate the comparison. Individual Win32 observations are not coalesced; Electron move/resize samples may be coalesced.
 - Do not add a permanent offset, re-position loop, AppBar notification handling, or production behavior from these observations. Any corrective change requires a separately reviewed decision.
 
 ## Official API references
