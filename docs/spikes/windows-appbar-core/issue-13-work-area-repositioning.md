@@ -96,17 +96,17 @@ Deferred geometry is captured after the observed event. Its measurement timestam
 
 | Evidence | Run A | Run B |
 |---|---|---|
-| Branch / full commit SHA | MANUAL_PENDING | MANUAL_PENDING |
-| Windows build / monitor / resolution / DPI / taskbar | MANUAL_PENDING | MANUAL_PENDING |
-| Node / Electron / Chromium / Koffi | MANUAL_PENDING | MANUAL_PENDING |
-| JSONL filename | MANUAL_PENDING | MANUAL_PENDING |
-| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` results | MANUAL_PENDING | MANUAL_PENDING |
-| Accepted rectangle / work area | MANUAL_PENDING | MANUAL_PENDING |
-| Event order and first measured Y displacement | MANUAL_PENDING | MANUAL_PENDING |
-| Window visible/rendered and visual placement | MANUAL_PENDING | MANUAL_PENDING |
-| `ABM_REMOVE` and in-process release verification | MANUAL_PENDING | MANUAL_PENDING |
-| Safe exit and PowerShell exit code | MANUAL_PENDING | MANUAL_PENDING |
-| Independent post-exit work area | MANUAL_PENDING | MANUAL_PENDING |
+| Branch / full commit SHA | Log SHA `NOT_RECORDED`; analyzed checkout was `720faf998dc9e833654c96b9ac92cb52d5df086b` (not proof of run source) | Log SHA `NOT_RECORDED`; analyzed checkout was `720faf998dc9e833654c96b9ac92cb52d5df086b` (not proof of run source) |
+| Windows build / monitor / resolution / DPI / taskbar | Windows 11 Pro; build/taskbar `NOT_RECORDED`; 1 monitor, 1920×1080, 96 DPI | Same recorded values; build/taskbar `NOT_RECORDED` |
+| Node / Electron / Chromium / Koffi | 24.22.2 / 45.2.3 / 156.0.8078.80 / `NOT_RECORDED` | Same recorded versions |
+| JSONL filename | `session-2026-11-14T09-12-12.564Z.jsonl` | `session-2026-11-14T09-13-35.353Z.jsonl` |
+| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` results | 1 / 1 / 1; `SetWindowPos=true` | 1 / 1 / 1; `SetWindowPos=true` |
+| Accepted rectangle / work area | `(0,0)-(1920,90)`; work area top=90, bottom=1032 | Same |
+| Event order and first measured Y displacement | After `SetWindowPos` Y=0; after `showInactive` Y=0; settled Y=90; Win32 messages coalesced | After `SetWindowPos` Y=0; `showInactive` omitted; settled Y=90; Win32 messages coalesced |
+| Window visible/rendered and visual placement | Visible; settled Win32 rect `(0,90)-(1936,188)`, Electron bounds `(8,90,1920×90)`, DWM `(7,90)-(1929,181)`; user reports visible bar below reserved area | Same settled rectangles; user reports visible bar below reserved area |
+| `ABM_REMOVE` and in-process release verification | Return 1; `apiAccepted/workAreaRestored/appBarHidden/operatorWindowUnchanged=true` | Same |
+| Safe exit and PowerShell exit code | `safe-shutdown-confirmed` logged; numeric exit code `NOT_RECORDED` | Same |
+| Independent post-exit work area | `NOT_RECORDED` | `NOT_RECORDED` |
 
 Assess work-area reservation, window position, visibility/rendering, release verification, process exit, and external restoration separately. If B omits `showInactive()` and the window is not visible/rendered, that is not a position success.
 
@@ -116,6 +116,22 @@ Interpretation is limited to evidence:
 - A `position-diagnostic-queue-overflow` event, or a `position-diagnostic-queue-stopped` summary with `queuedEventCount > 0`, means observations were dropped or remained unflushed; treat the message-order result as inconclusive. Unequal environments or inconsistent release evidence also invalidate the comparison. Individual Win32 observations are not coalesced; Electron move/resize samples may be coalesced.
 - Do not add a permanent offset, re-position loop, AppBar notification handling, or production behavior from these observations. Any corrective change requires a separately reviewed decision.
 
+
+## Human-run A/B results (2026-11-14)
+
+### Observed results
+
+- Both runs recorded monitor bounds `(0,0)-(1920,1080)`, pre-registration work area `(0,0)-(1920,1032)`, and post-registration work area `(0,90)-(1920,1032)`. `ABM_NEW`, `ABM_QUERYPOS`, and `ABM_SETPOS` returned 1; `SetWindowPos` returned true for the accepted rectangle `(0,0)-(1920,90)`.
+- In both runs, the synchronous `after-setwindowpos` measurement was at Y=0. Run A remained at Y=0 in `after-showinactive`; Run B omitted the `showInactive()` call. Both later measured at Y=90 in `after-show-settled`. The settled Win32, Electron, and DWM rectangles are recorded in the table. The user reports both bars were visibly below the reserved area.
+- `WM_SETTINGCHANGE` was observed with `wParam=0` in both logs, not `SPI_SETWORKAREA (0x002F)`. These logs do not show that notification as the direct trigger.
+- The message observations were coalesced. Run A includes `WM_WINDOWPOSCHANGING` sequence 1–3 (`coalescedCount=1`) and `WM_WINDOWPOSCHANGED` sequence 2–5 (`coalescedCount=2`); later observations were also coalesced. Run B shows the same initial coalescing and a later `WM_WINDOWPOSCHANGED` sequence 12–15 (`coalescedCount=1`). Exact intermediate message order is incomplete.
+- Both logs record `ABM_REMOVE=1`, successful in-process `release-verification` (all four checks true), and `safe-shutdown-confirmed`. Neither log provides the numeric PowerShell exit code or an independent work-area measurement after process exit; do not mark end-to-end SC-006 PASS from these logs alone.
+
+### Interpretation and provenance
+
+The observed A/B result is that omitting `showInactive()` did not prevent the later Y=90 move under the recorded conditions. This weakens the idea that the call is required for the displacement, but does not identify the mechanism or rule out interaction effects. The `WM_SETTINGCHANGE` value and coalesced position messages do not establish Chromium's work-area handler as the cause.
+
+The JSONL environment records do not include the source commit SHA. At analysis time, the local checkout containing these logs was at `720faf998dc9e833654c96b9ac92cb52d5df086b`; that does not prove which commit launched each run. However, nonzero `coalescedCount` on Win32 observations is inconsistent with the per-message FIFO behavior intended in PR HEAD `e671a93f78b9f92043bf8a6edf3961261aef141c`. Treat these runs as not verifying that queue fix. Repeat the pair on the current PR HEAD to obtain an uncoalesced timeline before drawing a message-order conclusion. The visual-position result remains `FAIL`; root cause remains unresolved.
 ## Official API references
 
 - [Electron BrowserWindow API](https://www.electronjs.org/docs/latest/api/browser-window): `showInactive()` and `hookWindowMessage()`.
