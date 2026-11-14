@@ -48,7 +48,7 @@
 
 ### Stage 1で確認したホスト環境
 
-読み取り専用の確認結果は次のとおり。CIMへのアクセスは拒否され、VMMSサービス照会もアクセス拒否となったため、ホストの正確なWindows SKU、ハイパーバイザー稼働状態、VM管理権限は確定できない。
+以下はStage 1初回調査時点の履歴である。CIMとVMMS照会の拒否結果はその時点の観測として残す。2026-11-12のWP-1再資格確認ではCIMの一部とVMMSサービス状態を読み取れた一方、Hyper-V機能・VM一覧・仮想スイッチは引き続き権限拒否となった。新しい測定・容量評価・候補再評価は[WP-1 Windowsホスト資格確認レポート](wp1-host-qualification.md)を参照する。
 
 | 観測 | 結果 | 解釈 |
 |---|---|---|
@@ -60,18 +60,22 @@
 | 読み取り専用desktop probe | DISPLAY1, 1920×1080, primary; working area 1920×1032; system DPI 96×96 | 現在の作業セッションの値。仮想化環境やguestで同じ表示条件になる証拠ではない。 |
 | VM作成・起動・設定変更 | 未実施 | Stage 1の範囲外。 |
 
-この確認から、現在のPCが推奨環境として利用可能とは判断できない。必要な権限を増やさず、Stage 2の人間承認後に確認する。
+この初回確認時点では、PCが推奨環境として利用可能とは判断できなかった。後日の権限のない読み取り専用再確認は次節に記録する。必要な権限を増やさず、Stage 2の人間承認後に確認する。
+
+### WP-1資格確認の更新 (2026-11-12)
+
+後続の非昇格確認では、`systeminfo`がWindows 11 Pro build 26300とHypervisor検出を報告し、VBSが稼働中、VMMSがRunning、Hyper-V PowerShell moduleが存在することを確認した。`Get-ComputerInfo`/レジストリには製品名の不一致が残り、Hyper-V optional feature、`Get-VM`、`Get-VMSwitch`はアクセス拒否だった。RAMは総容量約7.91 GiB、空きの測定値は異なる時点で約1.03–1.30 GiB、C:空き容量は約86.6 GiBだった。これらはVM運用余力を確認するのに不足しており、現在のホストはVM構築候補として保留とする。詳細値、公式資料、代替候補、承認事項は[資格確認レポート](wp1-host-qualification.md)を参照。権限昇格やVM/OS変更は行っていない。
 
 ## 3. 環境候補の比較
 
 | 候補 | 分離・ホスト影響 | GUI / AppBar | 再現・復元 | 自動化・保守 | 費用・制約 | Stage 1評価 |
 |---|---|---|---|---|---|---|
-| 専用Hyper-V Windows 11 VM | ゲスト内の作業領域はホストと別。ホスト側Supervisorが対象VM IDを固定すれば他VMを保護できる。共有クリップボード・ドライブ・ネットワークは無効を基本にする。 | VMConnect等で対話デスクトップを利用できる候補。AppBar APIの仮想ディスプレイ上の挙動とGUI自動操作はSpikeで確認が必要。 | 固定ゲスト構成とチェックポイントを再利用できる。復元はVM単位で対象を固定する。画面解像度・DPI・タスクバー状態は毎回ゲスト内で検証する。 | ホスト側監視とゲスト側GUI Runnerを分けられる。PowerShell Directはネットワーク設定に依存しないが、ホスト側Hyper-V管理者権限とゲスト資格情報を要求する。 | Windows SKU・ゲストライセンス、CPU/RAM/SSD余力、管理権限が必要。Hyper-V要件にはPro/Enterprise等とCPU仮想化要件がある。 | 第一候補（条件付き）。専用VM上のAppBar意味論と管理権限をStage 2で資格確認。 |
+| 専用Hyper-V Windows 11 VM | ゲスト内の作業領域はホストと別。ホスト側Supervisorが対象VM IDを固定すれば他VMを保護できる。ネットワークとVMConnect共有リソースは許可リスト方式で絞る。 | VMConnect等で対話デスクトップを利用できる候補。Enhanced SessionはRDPベースでRemote Desktop有効化を要し、clipboard/printers/audio playbackは既定共有。AppBar APIの仮想ディスプレイ上の挙動とGUI自動操作はSpikeで確認が必要。 | 固定ゲスト構成とチェックポイントを再利用できる。復元はVM単位で対象を固定する。画面解像度・DPI・タスクバー状態は毎回ゲスト内で検証する。 | ホスト側監視とゲスト側GUI Runnerを分けられる。PowerShell Directはネットワーク設定に依存しないが、ホスト側Hyper-V管理者権限とゲスト資格情報を要求する。 | Windows SKU・ゲストライセンス、CPU/RAM/SSD余力、管理権限が必要。Hyper-V要件にはPro/Enterprise等とCPU仮想化要件がある。 | 第一候補（条件付き）。専用VM上のAppBar意味論と管理権限をStage 2で資格確認。 |
 | Windows Sandbox | ゲストの作業領域はSandbox内。終了時に内容を破棄できる。 | GUIはSandboxウィンドウ越し。内部Win32 APIは実行可能な候補だが、実際のExplorer/AppBarと表示測定を確認する必要がある。 | 起動ごとの初期化が容易。ただし既定でネットワークとクリップボードが有効、Sandbox表示サイズは構成ファイルで指定できないと公式資料に記載。ログ回収用の書き込み共有はホスト境界を広げる。 | ゲスト消滅の検知は可能でも、ゲスト内プロセス終了コード・作業領域の外部測定・証拠回収を一貫させにくい。 | 対応SKU/機能有効化が必要。使い捨ての短いGUI試験には有力だが、長期の対話デスクトップとSupervisor連携は別途検証。 | Hyper-Vの条件が満たせない場合の限定比較候補。最初の反復基盤には推奨しない。 |
 | 専用物理Windows端末 | 開発PCと物理的に分離できる。対象端末以外のVM/ホストへ触れない設計にできる。 | 実機のWindows shell・表示デバイスで最も現実に近い。画面・タスクバー・DPIの制御が可能。 | 端末構成を固定できるが、スナップショット相当の復旧やハードウェア状態の再現がVMより難しい。 | リモート接続、対話ログオン、保守・電源制御が必要。無人化は別途構築。 | 端末購入・Windowsライセンス・保守費用が必要。 | VMと実機との差が重要と判明した場合の比較対象。初期案にはしない。 |
 | 他の独立GUI環境（クラウドWindows VM等） | 開発PCと別ホストにできる。接続サービスやリモート管理権限の境界が必要。 | RDP/仮想GPU/リモートセッション上のGUI。ローカルVMConnectと同様、AppBar挙動が物理コンソールと同一とは限らない。 | イメージ・スナップショットで再現できる候補。解像度/DPI・GPU・ログオン方式の差を測る。 | リモート制御・ログ回収・ゲスト停止の監視は構築可能だが、サービス固有の権限・接続・費用を要する。 | 利用料、ライセンス、ネットワーク、アカウント管理が必要。価格は選択肢・利用時間により変わるため未算定。 | Hyper-Vが不可で、隔離済みの既存環境が利用可能な場合に再評価。 |
 
-Windows Sandboxは使い捨てという利点がある一方、既定統合機能と画面サイズ制約、外部監視・証拠回収の難しさが今回の長時間・反復要件に合いにくい。Hyper-Vのチェックポイントは復旧に使えるが、AppBarの正常解除を証明するものではない。VMConnectの拡張セッション等のリダイレクト機能を用いる場合、クリップボード・ドライブ等を無効にできる設定を選び、VM接続経路自体は別途確認する。
+Windows Sandboxは使い捨てという利点がある一方、既定統合機能と画面サイズ制約、外部監視・証拠回収の難しさが今回の長時間・反復要件に合いにくい。Hyper-Vのチェックポイントは復旧に使えるが、AppBarの正常解除を証明するものではない。VMConnect Enhanced SessionはRDPベースで、ゲストRemote Desktopを必要とする。Microsoft資料上、clipboard、printers、audio playbackは既定で共有され、drives、removable storage、USB、smart cards等も選択して共有でき、audio recordingも設定可能である。したがってEnhanced Sessionを使う場合は、ホスト統合リソースを接続単位でallowlist化し、GUI操作に不要な共有を無効化してゲスト側から非公開を確認する。許可状態を検証できなければBasic Sessionを使うか環境を停止する。[Enhanced Session and device sharing](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/enhanced-session-mode)
 
 ## 4. 3要素の責任分界
 

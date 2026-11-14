@@ -13,7 +13,7 @@
 - 現行PoCはAppBar API、Win32/DWM/Electron矩形、遅延JSONL診断、明示解除と終了ガードを持つ。
 - 2026-11-12のBaseline/NoSendChanging A/Bでは予約は観測されたが、最終表示位置は双方Y=90。NoSendChangingは一時Y=0後にY=90となり、移動呼び出し元とフラグ因果は未確定。
 - SC-006の外部終了コード/終了後測定が不足している。
-- ホスト環境のCIM/VMMS情報は権限拒否、レジストリ製品名とビルド表示が不整合。Hyper-Vの利用可否を決めない。
+- 初回ホスト照会ではCIM/VMMSへのアクセスが拒否された。2026-11-12のWP-1再資格確認では一部CIM・VMMSサービス情報を取得したが、Hyper-V feature stateとVM/switch inventoryは権限拒否、SKU表示は不一致、RAM/storage余力は不足と判断された。Hyper-VのVM作成適格性は未確認であり、詳細と候補判断は[WP-1資格確認レポート](../../docs/spikes/windows-appbar-core/wp1-host-qualification.md)に記録。
 - 既存仕様・4 SDD契約・Level 1/2/3・Issue登録/実装/人間承認境界は変更しない。
 
 ## Candidate architecture
