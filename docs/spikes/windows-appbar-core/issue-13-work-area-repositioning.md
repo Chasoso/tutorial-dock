@@ -62,7 +62,7 @@ Confirm the JSONL includes `show-inactive-mode-selected` with `showInactiveMode=
 7. Independently measure the Windows work area after process exit. Do not infer AppBar removal from process disappearance or work-area appearance alone.
 8. Confirm exactly one new JSONL file is associated with Run A and record its name, commit, environment, and exit code.
 
-If registration, release, process exit, or external restoration is unconfirmed, stop. Do not run B.
+Run B may proceed only when Run A release-verification confirms ABM_REMOVE, the operator used Safe exit and JSONL confirms safe-shutdown-confirmed, the Electron process exited and PowerShell recorded exit code 0, and the independent post-exit work-area measurement matches the recorded pre-run baseline. If any evidence is missing, the exit code is nonzero, or the work area differs or is unknown, stop; do not run B.
 
 ### Run B - comparison (`SWP_NOSENDCHANGING` + omitted `showInactive()`)
 
