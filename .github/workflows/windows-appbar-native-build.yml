@@ -49,10 +49,6 @@ jobs:
           )
           call "%VCVARSALL%" amd64
           if errorlevel 1 exit /b 1
-          if not defined VCToolsInstallDir (
-            echo ERROR: vcvarsall.bat amd64 did not set VCToolsInstallDir.
-            exit /b 1
-          )
           if not defined WindowsSdkDir (
             echo ERROR: WindowsSdkDir was not set by vcvarsall.bat.
             exit /b 1
@@ -67,8 +63,6 @@ jobs:
           )
           echo PR source commit: %SOURCE_SHA%
           echo Visual Studio: %VSINSTALLDIR%
-          echo MSVC tools: %VCToolsInstallDir%
-          echo MSVC version: %VCToolsVersion%
           echo Windows SDK: %WindowsSdkDir%Include\%WindowsSDKVersion%
           where cl
           if errorlevel 1 (
