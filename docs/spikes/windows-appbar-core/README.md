@@ -437,3 +437,20 @@ The A/B observations are consistent with a possible contribution from the `WM_WI
 Two separate evidence boundaries remain: the B log contains successful `ABM_REMOVE` and all-true in-process `release-verification`, but no `safe-shutdown-confirmed` event; neither run has a supplied numeric PowerShell exit code or independent post-process work-area measurement. Therefore, do not mark SC-006 end-to-end PASS. Also, a static source check found that the PoC logs `WM_WINDOWPOSCHANGED` without calling `ABM_WINDOWPOSCHANGED`; Microsoft says the appbar should send it in response, to notify the shell and support correct Z-order handling for autohide appbars. This protocol gap is recorded for separate verification and is not established as the Y-offset cause.
 
 The [comparison record and next-step plan](position-strategy-comparison.md) separates measured evidence from hypotheses. The next diagnostic should capture `WM_WINDOWPOSCHANGING`'s proposed `WINDOWPOS` values safely and isolate the `showInactive()` call in a one-factor run. No flags, window geometry, or automatic repositioning were changed in this follow-up.
+
+## Human Phase 1 result recorded in merged PR #17 (2026-11-16)
+
+The user-provided session `session-20261116T065123-318-0.jsonl` was summarized in the merged [PR #17](https://github.com/Chasoso/tutorial-dock/pull/17) description. This repository note preserves the result for later planning; the PR description remains the original linked record. PR #17 merged as `595774177ac7570d6459321d86f25b4c8334481d` from PR head `2164736add1acd2a1742229180b96e503dda20f7`.
+
+| Check | Recorded result | Evidence boundary |
+|---|---|---|
+| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` | PASS in the run: 1 / 1 / 1; accepted rect `(0,0)-(1920,90)`. | API success is separate from work-area and visual evidence. |
+| Windows work area | PASS in the run: top changed from 0 to 90 and remained 90 at the settled sample. | Single-display 1920x1080, 96-DPI setup. |
+| AppBar position and visibility | PASS at recorded samples: `GetWindowRect=(0,0)-(1920,90)`; user visually confirmed rendering in the reserved strip. | No DWM frame was collected. A later 1 px height difference followed the user's manual drag and is not treated as an unexplained defect. |
+| Explicit `ABM_REMOVE` and in-process release verification | PASS: return 1; `workAreaRestored=true`, `appBarHidden=true`, `operatorWindowUnchanged=true`. | In-process evidence only. |
+| Safe Exit and process result | PASS in the application log: `safe-shutdown-confirmed` and `process-exit exitCode=0`. | The parent PowerShell exit code was not independently recorded. |
+| Maximized Notepad/Tableau avoidance | NOT_RUN. | No evidence for AB-002's other-application behavior in this run. |
+| External post-process work-area restoration | NOT_CONFIRMED. | No independent measurement after process termination. |
+| Provenance/environment completeness | INCOMPLETE. | The result record identifies Windows 11 Pro, one display, 1920x1080, 96 DPI and human-confirmed standard taskbar; it does not state the Windows build or exact experiment source SHA. |
+
+The run demonstrates a successful reservation and visible top-aligned rendering for the sampled configuration. It does **not** satisfy all NAB-SC-001–NAB-SC-007 or complete WP-NAB-01/Issue #16. Issue #16 remains open; this note does not close it or change the native Spike's phase gates. Missing provenance, maximized-application, and external post-exit evidence remain unresolved.
