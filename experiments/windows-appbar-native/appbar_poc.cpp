@@ -21,7 +21,6 @@ constexpr UINT kThreadCommand = WM_APP + 0x411;
 constexpr UINT kThreadPositionUpdate = WM_APP + 0x412;
 constexpr UINT kThreadFullscreen = WM_APP + 0x413;
 constexpr UINT kThreadSafeExit = WM_APP + 0x414;
-constexpr UINT kThreadOperatorDestroyed = WM_APP + 0x415;
 constexpr UINT_PTR kSettleTimer = 0x1601;
 constexpr UINT kRequestedHeight = 90;
 constexpr UINT kMaxDeferredPositionUpdates = 4;
@@ -89,6 +88,7 @@ bool g_removeAttempted = false;
 bool g_closeAllowed = false;
 bool g_appBarDestroyedUnexpectedly = false;
 bool g_operatorDestroyedUnexpectedly = false;
+bool g_operatorDestroyCleanupPending = false;
 bool g_operatorWarningShown = false;
 bool g_positionNotificationInProgress = false;
 bool g_positionMessagePending = false;
@@ -702,6 +702,12 @@ void RegisterAppBar() {
     g_registrationAttempted = true;
     LogEvent("state-transition", "\"state\":\"registering\"");
     LogSnapshot("before-abm-new");
+    if (!g_loggerHealthy || g_inconclusive) {
+        g_lifecycle = Lifecycle::Unregistered;
+        SetStatus(L"Registration stopped because pre-registration evidence is incomplete. No AppBar registration was attempted.");
+        RefreshControls();
+        return;
+    }
     APPBARDATA data = MakeAppBarData();
     const LRESULT newResult = SHAppBarMessage(ABM_NEW, &data);
     LogEvent("ABM_NEW", "\"targetWindow\":\"appbar\",\"returnValue\":%lld",
@@ -788,6 +794,14 @@ void RequestSafeExit() {
                     L"Native AppBar release requires human attention",
                     MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     }
+}
+
+void HandlePendingOperatorDestroy() {
+    if (!g_operatorDestroyCleanupPending) {
+        return;
+    }
+    g_operatorDestroyCleanupPending = false;
+    RequestSafeExit();
 }
 
 bool PostUiThreadMessage(UINT message, WPARAM wParam = 0, LPARAM lParam = 0) {
@@ -994,8 +1008,8 @@ LRESULT CALLBACK OperatorWindowProc(HWND window, UINT message, WPARAM wParam, LP
             g_lifecycle != Lifecycle::Released) {
             QueueMessageObservation(WindowRole::Operator, message, wParam, false);
             g_operatorDestroyedUnexpectedly = true;
+            g_operatorDestroyCleanupPending = true;
             g_operator = nullptr;
-            PostUiThreadMessage(kThreadOperatorDestroyed);
             return 0;
         }
         PostQuitMessage(0);
@@ -1062,9 +1076,6 @@ void DispatchUiMessage(MSG& message) {
             HandleFullscreenNotification(message.wParam != 0);
             return;
         case kThreadSafeExit:
-            RequestSafeExit();
-            return;
-        case kThreadOperatorDestroyed:
             RequestSafeExit();
             return;
         }
@@ -1164,6 +1175,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
                 continue;
             }
             DispatchUiMessage(message);
+            HandlePendingOperatorDestroy();
             continue;
         }
 
@@ -1184,6 +1196,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
             continue;
         }
         DispatchUiMessage(message);
+        HandlePendingOperatorDestroy();
     }
 
     DrainObservations();
