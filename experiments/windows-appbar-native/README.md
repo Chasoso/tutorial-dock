@@ -74,7 +74,19 @@ This procedure is for a separately authorized human Windows run. Codex did not b
 
 ### One controlled run
 
-1. Start `& .\appbar_poc.exe` from PowerShell and wait for the operator window. Record the generated log name. Confirm the status says `unregistered`; the top bar is hidden and no reservation has been requested.
+From the experiment directory, run this in the PowerShell terminal that will wait for the GUI process:
+
+```powershell
+$exePath = (Resolve-Path .\appbar_poc.exe -ErrorAction Stop).Path
+$runDirectory = Split-Path -Parent $exePath
+$appBarProcess = Start-Process -FilePath $exePath -WorkingDirectory $runDirectory -PassThru -Wait
+$processExitCode = [int]$appBarProcess.ExitCode
+"PoC PID: $($appBarProcess.Id); exit code: $processExitCode"
+```
+
+The command remains active while the GUI is open. Use the operator window to complete the run; do not interrupt the waiting PowerShell with Ctrl+C. If a separate PowerShell is needed to inspect logs or measure the desktop, open another terminal.
+
+1. Confirm the operator window appears and shows `unregistered`; the AppBar window remains hidden and no reservation has been requested.
 2. Click **Measure work area** once and confirm the logged work area still matches the external pre-run baseline.
 3. Click **Register 90 px top AppBar** exactly once. Do not drag or resize the AppBar window. Record the AppBar's visual position separately from the numeric JSONL values.
 4. Review `ABM_NEW`, `ABM_QUERYPOS`, `ABM_SETPOS`, `MoveWindow`, `after-movewindow-immediate`, `after-show-immediate`, and `after-250ms`. Record the accepted rectangle, `rcWork`, AppBar/operator `GetWindowRect`, DPI, and visibility. The expected reservation is an accepted top rectangle of nominal height 90 and `rcWork.top = 90`; the expected AppBar HWND top is `Y=0` immediately and at +250 ms. These are separate results. `GetWindowRect` includes the Win32 outer window rectangle; this PoC does not collect DWM visible-frame bounds.
@@ -89,7 +101,7 @@ This procedure is for a separately authorized human Windows run. Codex did not b
 
    Record the rectangle and visual overlap separately. Close Notepad normally before removal. Do not test fullscreen, another display, DPI changes, or another AppBar.
 7. Click **Remove and Verify** once. Confirm `ABM_REMOVE.returnValue` is nonzero, `release-verification` reports `apiAccepted=true`, `workAreaRestored=true`, `appBarHidden=true`, and `operatorWindowUnchanged=true`, and the lifecycle reaches `released`.
-8. Click **Safe Exit**. Wait for the PowerShell prompt to return; record `$LASTEXITCODE` immediately. A zero code is required for the process-exit observation, but is separate from AppBar release evidence.
+8. Click **Safe Exit**. The waiting `Start-Process` command should return to PowerShell. Record the displayed `$processExitCode`; it must be `0` for the process-exit observation. If the command does not return or the exit code cannot be read, record that separately as unconfirmed. This does not replace the AppBar release evidence.
 9. After the process has exited, run `.\measure-workarea.ps1` again. The external work area must match the exact pre-run rectangle. Keep the exit code and external measurement distinct from in-process `release-verification`.
 10. Identify the new JSONL by comparing the pre-launch filename list with the post-exit list. Preserve it unchanged and associate it with the Git SHA and environment record.
 
