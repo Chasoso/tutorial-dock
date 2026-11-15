@@ -55,7 +55,7 @@ This is a proposed Level 2 product-stack choice, not a final selection. WPF, Win
 
 - Separate UI state from AppBar lifecycle state. At minimum distinguish unregistered, registering, registered, updating, removing, released, and removal-unverified.
 - Register only the bar HWND. Handle the documented Shell/window notifications based on the reviewed native PoC path; do not invent a new reposition loop.
-- On reservation/update failure, show a degraded state and keep the work-area result unconfirmed unless independently measured. Follow AB-004/AB-008; topmost display alone is not success.
+- On size/display update failure, prefer returning to the last confirmed bar presentation and reservation (AB-003/AB-004). If that state cannot be restored or confirmed, show a degraded state, keep OS reservation status unconfirmed, and follow AB-004/AB-008; topmost display alone is not success.
 - Normal Exit and window-close share one guarded release route. Remove and verify the baseline work area before destroying the registered window.
 - If release is unconfirmed, keep the UI/process available and make the uncertainty visible; do not force termination or claim the operating system is restored.
 - This Work Package validates normal termination only. Abnormal termination and recovery require a later focused Technical Spike and separate approval.

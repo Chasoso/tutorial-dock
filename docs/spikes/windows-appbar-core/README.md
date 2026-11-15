@@ -440,7 +440,7 @@ The [comparison record and next-step plan](position-strategy-comparison.md) sepa
 
 ## Human Phase 1 result recorded in merged PR #17 (2026-11-16)
 
-The user-provided session `session-20261116T065123-318-0.jsonl` was summarized in the merged [PR #17](https://github.com/Chasoso/tutorial-dock/pull/17) description. This repository note preserves the result for later planning; the PR description remains the original linked record. PR #17 merged as `595774177ac7570d6459321d86f25b4c8334481d` from PR head `2164736add1acd2a1742229180b96e503dda20f7`.
+The user-provided session `session-20261116T065123-318-0.jsonl` was summarized in the merged [PR #17](https://github.com/Chasoso/tutorial-dock/pull/17) description. This repository note preserves the result for later planning; the PR description remains the original linked record and includes historical pre-merge passages that say Draft. Current PR state is merged; Issue #16 remains open. PR #17 merged as `595774177ac7570d6459321d86f25b4c8334481d` from PR head `2164736add1acd2a1742229180b96e503dda20f7`.
 
 | Check | Recorded result | Evidence boundary |
 |---|---|---|

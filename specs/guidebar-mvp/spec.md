@@ -128,7 +128,7 @@ Settings shall open a mouse-operable menu containing the prototype sample-loadin
 | GBM-SC-004 | Collapse and expand update measured work area and retain the same selected step. | Windows manual test; both directions require measured work-area evidence. |
 | GBM-SC-005 | A normal maximized Notepad and Tableau Desktop avoid the reserved strip in the tested baseline environment. | Windows manual test with numerical work-area/window bounds and visual result. If Tableau is unavailable, record it as MANUAL_PENDING. |
 | GBM-SC-006 | Normal Exit removes the reservation; in-process verification succeeds; the process exits with code 0; external post-exit work-area measurement matches the pre-run baseline. | Record API/removal state, exit code, and independent measurement as separate evidence. |
-| GBM-SC-007 | A simulated API failure is shown as degraded/uncertain and is never reported as AppBar success. | Isolated failure-path test; do not deliberately induce an OS-level failure on the host. |
+| GBM-SC-007 | On a simulated size-update failure, the app prefers restoring the last confirmed bar presentation and reservation. If restoration is confirmed, it returns to that state; otherwise it shows failure/degraded status, treats OS reservation as unconfirmed, and keeps a safe cleanup path available. | Injected failure-path tests cover confirmed rollback and unconfirmed rollback separately; verify measured state where available and other-app continuity. Do not deliberately induce an OS-level failure on the host. |
 
 Windows AppBar, work-area, maximized-window, visual, and post-exit checks require a real Windows session. Static or compile checks do not pass these criteria.
 
