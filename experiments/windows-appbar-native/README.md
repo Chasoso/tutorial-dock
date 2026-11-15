@@ -27,7 +27,7 @@ Build only from a Windows 11 Visual Studio Developer PowerShell or Developer Com
 Build command, from this directory:
 
 ```powershell
-cl /nologo /std:c++17 /EHsc /W4 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /MT appbar_poc.cpp /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib
+cl /nologo /std:c++17 /EHsc /W4 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /MT appbar_poc.cpp /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib gdi32.lib
 ```
 
 `/MT` requests static MSVC runtime linkage for this experiment; it is not proof that the binary meets product requirement `R-09`. A clean-machine portable-package test is outside WP-NAB-01.
@@ -104,7 +104,7 @@ This procedure is for a separately authorized human Windows run. Codex did not b
 | Item | Status | Evidence |
 |---|---|---|
 | T001 reference/source review | PASS | Microsoft protocol and pinned classic-sample source reviewed; deviations documented above. |
-| T002–T004 implementation | NOT_RUN | Source files are prepared; native compilation/runtime verification was not run. |
+| T002–T004 source implementation | SOURCE_PRESENT | The isolated project, lifecycle, and measurement code are included in this PR. Build and runtime verification are tracked separately below. |
 | T005 local static checks | PASS | PowerShell parser, whitespace, path/scope and source-level lifecycle checks were run; native compiler validation remains unavailable. |
 | T005 independent review | NOT_RUN | Must be updated for the exact final PR HEAD. |
 | Build | NOT_RUN | MSVC and Windows SDK were unavailable in this Codex environment. |
