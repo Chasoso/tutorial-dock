@@ -58,6 +58,12 @@ jobs:
           echo Selected MSVC toolset: %MSVC_TOOLS_VERSION%
           call "%VCVARSALL%" amd64 -vcvars_ver=%VCVARS_VER%
           if errorlevel 1 exit /b 1
+          set "MSVC_BIN=%VSINSTALLDIR%\VC\Tools\MSVC\%MSVC_TOOLS_VERSION%\bin\Hostx64\x64"
+          if not exist "%MSVC_BIN%\cl.exe" (
+            echo ERROR: The selected x64 MSVC compiler was not found.
+            exit /b 1
+          )
+          set "PATH=%MSVC_BIN%;%PATH%"
           if not defined WindowsSdkDir (
             echo ERROR: WindowsSdkDir was not set by vcvarsall.bat.
             exit /b 1
