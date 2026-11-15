@@ -285,6 +285,7 @@ void RequestObservationDrain() {
     if (!PostThreadMessageW(g_uiThreadId, kThreadDrain, 0, 0)) {
         g_drainMessagePending = false;
         ++g_threadPostFailures;
+        g_inconclusive = true;
     }
 }
 
