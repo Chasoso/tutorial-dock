@@ -6,6 +6,9 @@ const {
 } = require('./position-variant.cjs');
 const positionVariantEnv = process.env.TUTORIAL_DOCK_SPIKE_POSITION_VARIANT;
 const positionVariant = resolvePositionVariant(positionVariantEnv);
+const { resolveShowInactiveMode } = require('./show-inactive-mode.cjs');
+const showInactiveModeEnv = process.env.TUTORIAL_DOCK_SPIKE_SHOW_INACTIVE;
+const showInactiveMode = resolveShowInactiveMode(showInactiveModeEnv, positionVariant.name);
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -13,6 +16,14 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron');
 const koffi = require('koffi');
 const { createBoundedDiagnosticQueue } = require('./deferred-diagnostic-queue.cjs');
+const {
+  WM_SETTINGCHANGE,
+  WM_WINDOWPOSCHANGING,
+  WM_WINDOWPOSCHANGED,
+  describePositionMessage,
+  positionMessageName,
+  readUnsignedMessageValue,
+} = require('./position-message.cjs');
 
 const APPBAR = Object.freeze({
   NEW: 0x00000000,
@@ -27,7 +38,11 @@ const APPBAR = Object.freeze({
   SWP_SHOWWINDOW,
 });
 const ABN_POSCHANGED = 0x00000001;
-const WM_WINDOWPOSCHANGED = 0x0047;
+const POSITION_DIAGNOSTIC_MESSAGES = Object.freeze([
+  WM_SETTINGCHANGE,
+  WM_WINDOWPOSCHANGING,
+  WM_WINDOWPOSCHANGED,
+]);
 const SM_CMONITORS = 80;
 const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 const SHOW_SETTLED_DIAGNOSTIC_DELAY_MS = 250;
@@ -477,7 +492,7 @@ function suppressDiagnosticEventIfStopped() {
 function enqueueDeferredPositionDiagnostic(label, event) {
   try {
     if (suppressDiagnosticEventIfStopped()) return;
-    deferredPositionDiagnostics.enqueue(label, event);
+    deferredPositionDiagnostics.enqueue(label, event, event.kind !== 'win32-message');
     scheduleDeferredDiagnosticFlush();
   } catch {
     // Native callbacks must not log, measure, or let a diagnostic failure escape.
@@ -530,12 +545,36 @@ function emitDeferredPositionDiagnostic(entry) {
       }, capture);
       return;
     }
-    record('wm-windowposchanged-observed', {
+    const description = describePositionMessage(payload.message, payload.wParamValue);
+    const eventName = payload.message === WM_SETTINGCHANGE
+      ? 'wm-settingchange-observed'
+      : payload.message === WM_WINDOWPOSCHANGING
+        ? 'wm-windowposchanging-observed'
+        : 'wm-windowposchanged-observed';
+    record(eventName, {
       ...common,
-      handling: 'logged-only plus deferred read-only position measurement; ABM_WINDOWPOSCHANGED is not sent',
+      messageName: description.messageName,
+      wParamValue: payload.wParamValue,
+      ...(description.systemParametersInfoAction !== undefined
+        ? {
+            systemParametersInfoAction: description.systemParametersInfoAction,
+            systemParametersInfoActionName: description.systemParametersInfoActionName,
+          }
+        : {}),
+      lParamHandling: description.lParamHandling,
+      handling: 'logged-only plus deferred read-only position measurement; pointed-to data is not dereferenced and no AppBar relocation is performed',
     });
-    positionDiagnosticSnapshot('win32-message:WM_WINDOWPOSCHANGED', {
+    positionDiagnosticSnapshot('win32-message:' + description.messageName, {
       message: payload.message,
+      messageName: description.messageName,
+      wParamValue: payload.wParamValue,
+      ...(description.systemParametersInfoAction !== undefined
+        ? {
+            systemParametersInfoAction: description.systemParametersInfoAction,
+            systemParametersInfoActionName: description.systemParametersInfoActionName,
+          }
+        : {}),
+      lParamHandling: description.lParamHandling,
       action: 'deferred read-only measurement only',
     }, capture);
     return;
@@ -564,6 +603,7 @@ function flushDeferredPositionDiagnostics() {
     if (deferredDiagnosticsStopped || shutdownRequested || appBarState === STATE.REMOVING) {
       if (stoppedDiagnosticSummary) {
         stoppedDiagnosticSummary.queuedLabelCount += discarded.queuedLabelCount;
+        stoppedDiagnosticSummary.queuedEntryCount += discarded.queuedEntryCount;
         stoppedDiagnosticSummary.queuedEventCount += discarded.queuedEventCount;
         stoppedDiagnosticSummary.overflowDroppedCount += discarded.droppedCount;
       }
@@ -571,6 +611,7 @@ function flushDeferredPositionDiagnostics() {
       record('position-diagnostic-queue-discarded', {
         reason: 'capture-unavailable-or-lifecycle-ending',
         queuedLabelCount: discarded.queuedLabelCount,
+        queuedEntryCount: discarded.queuedEntryCount,
         queuedEventCount: discarded.queuedEventCount,
         overflowDroppedCount: discarded.droppedCount,
         suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
@@ -628,6 +669,7 @@ function stopDeferredPositionDiagnostics(reason) {
   stoppedDiagnosticSummary = {
     reason,
     queuedLabelCount: discarded.queuedLabelCount,
+    queuedEntryCount: discarded.queuedEntryCount,
     queuedEventCount: discarded.queuedEventCount,
     overflowDroppedCount: discarded.droppedCount,
     suppressedAfterStopCount: diagnosticEventsSuppressedAfterStop,
@@ -641,6 +683,7 @@ function recordStoppedDiagnosticSummary() {
   const pendingSummary = stoppedDiagnosticSummary ?? {
     reason: 'events-suppressed-after-diagnostics-stopped',
     queuedLabelCount: 0,
+    queuedEntryCount: 0,
     queuedEventCount: 0,
     overflowDroppedCount: 0,
     suppressedAfterStopCount: 0,
@@ -725,11 +768,6 @@ function appBarData(rect = { left: 0, top: 0, right: 0, bottom: 0 }) {
   };
 }
 
-function readUnsignedMessageValue(value) {
-  if (!Buffer.isBuffer(value) || value.length < 4) return null;
-  return value.readUInt32LE(0);
-}
-
 function hookAppBarMessages() {
   if (appBarMessagesHooked) return;
   appBarWindow.hookWindowMessage(callbackMessage, (_event, wParam, lParam) => {
@@ -752,24 +790,26 @@ function hookAppBarMessages() {
       diagnosticCallbackFailureCount = Math.min(diagnosticCallbackFailureCount + 1, Number.MAX_SAFE_INTEGER);
     }
   });
-  appBarWindow.hookWindowMessage(WM_WINDOWPOSCHANGED, (_event, wParam, lParam) => {
-    try {
-      if (suppressDiagnosticEventIfStopped()) return;
-      enqueueDeferredPositionDiagnostic('win32-message:WM_WINDOWPOSCHANGED', {
-        kind: 'win32-message',
-        observedAt: new Date().toISOString(),
-        sequence: ++diagnosticEventSequence,
-        appBarStateAtEvent: appBarState,
-        payload: {
-          message: WM_WINDOWPOSCHANGED,
-          wParam: copyMessageParameter(wParam),
-          lParam: copyMessageParameter(lParam),
-        },
-      });
-    } catch {
-      diagnosticCallbackFailureCount = Math.min(diagnosticCallbackFailureCount + 1, Number.MAX_SAFE_INTEGER);
-    }
-  });
+  for (const message of POSITION_DIAGNOSTIC_MESSAGES) {
+    appBarWindow.hookWindowMessage(message, (_event, wParam, lParam) => {
+      try {
+        if (suppressDiagnosticEventIfStopped()) return;
+        const copiedWParam = copyMessageParameter(wParam);
+        const copiedLParam = copyMessageParameter(lParam);
+        const wParamValue = readUnsignedMessageValue(copiedWParam);
+        const messageName = positionMessageName(message);
+        enqueueDeferredPositionDiagnostic('win32-message:' + messageName, {
+          kind: 'win32-message',
+          observedAt: new Date().toISOString(),
+          sequence: ++diagnosticEventSequence,
+          appBarStateAtEvent: appBarState,
+          payload: { message, wParamValue, wParam: copiedWParam, lParam: copiedLParam },
+        });
+      } catch {
+        diagnosticCallbackFailureCount = Math.min(diagnosticCallbackFailureCount + 1, Number.MAX_SAFE_INTEGER);
+      }
+    });
+  }
   appBarMessagesHooked = true;
 }
 
@@ -928,16 +968,27 @@ function setReservationHeightInternal(height) {
     if (!moved) {
       throw new Error(`SetWindowPos failed; GetLastError=${setWindowPosError}`);
     }
+    const showInactiveStep = {
+      operation: 'BrowserWindow.showInactive',
+      requestedHeight: height,
+      setWindowPosRequest,
+      showInactiveMode: showInactiveMode.name,
+      showInactiveInvoked: showInactiveMode.invoke,
+    };
     positionDiagnosticSnapshot('before-showinactive', {
-      operation: 'BrowserWindow.showInactive',
-      requestedHeight: height,
-      setWindowPosRequest,
+      ...showInactiveStep,
+      action: showInactiveMode.invoke ? 'invoke' : 'omitted by experiment mode',
     });
-    appBarWindow.showInactive();
+    record('show-inactive-experiment-step', { ...showInactiveStep, phase: 'before-action' });
+    if (showInactiveMode.invoke) appBarWindow.showInactive();
+    record('show-inactive-experiment-step', {
+      ...showInactiveStep,
+      phase: 'after-action',
+      callReturned: showInactiveMode.invoke ? true : null,
+    });
     positionDiagnosticSnapshot('after-showinactive', {
-      operation: 'BrowserWindow.showInactive',
-      requestedHeight: height,
-      setWindowPosRequest,
+      ...showInactiveStep,
+      action: showInactiveMode.invoke ? 'call returned' : 'omitted by experiment mode',
     });
     if (showSettledDiagnosticTimer) clearTimeout(showSettledDiagnosticTimer);
     showSettledDiagnosticTimer = setTimeout(() => {
@@ -949,7 +1000,11 @@ function setReservationHeightInternal(height) {
         return;
       }
       positionDiagnosticSnapshot('after-show-settled', {
-        trigger: 'BrowserWindow.showInactive',
+        trigger: showInactiveMode.invoke
+          ? 'BrowserWindow.showInactive'
+          : 'showInactive omitted by experiment mode',
+        showInactiveMode: showInactiveMode.name,
+        showInactiveInvoked: showInactiveMode.invoke,
         delayMs: SHOW_SETTLED_DIAGNOSTIC_DELAY_MS,
         requestedHeight: height,
         setWindowPosRequest,
@@ -971,6 +1026,12 @@ async function registerAppBarInternal() {
   if (appBarState !== STATE.UNREGISTERED) {
     return { ok: false, state: appBarState, message: 'Registration is only allowed when AppBar is unregistered' };
   }
+  record('appbar-registration-requested', {
+    positionVariant: positionVariant.name,
+    setWindowPosFlags: positionVariant.flags,
+    showInactiveMode: showInactiveMode.name,
+    showInactiveInvoked: showInactiveMode.invoke,
+  });
   transition(STATE.REGISTERING);
   let newCallStarted = false;
   try {
@@ -1361,10 +1422,18 @@ function createWindows() {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   record('position-variant-selected', {
     positionVariant: positionVariant.name,
+    showInactiveMode: showInactiveMode.name,
+    showInactiveSelectionSource: showInactiveMode.selectionSource,
     setWindowPosFlags: positionVariant.flags,
     setWindowPosFlagsHex: positionVariant.flagsHex,
     setWindowPosFlagNames: positionVariant.flagNames,
     selectionSource: positionVariantEnv === undefined ? 'default' : 'environment',
+  });
+  record('show-inactive-mode-selected', {
+    showInactiveMode: showInactiveMode.name,
+    invokeShowInactive: showInactiveMode.invoke,
+    selectionSource: showInactiveMode.selectionSource,
+    positionVariant: positionVariant.name,
   });
   hookAppBarWindowGeometryEvents();
 
@@ -1392,6 +1461,8 @@ function createWindows() {
       monitorCount,
       dpi: windowDpi,
       positionVariant: positionVariant.name,
+      showInactiveMode: showInactiveMode.name,
+      showInactiveInvoked: showInactiveMode.invoke,
       setWindowPosFlags: positionVariant.flags,
       setWindowPosFlagsHex: positionVariant.flagsHex,
       setWindowPosFlagNames: positionVariant.flagNames,
