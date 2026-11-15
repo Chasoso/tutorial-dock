@@ -1215,4 +1215,3 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (g_barBrush) DeleteObject(g_barBrush);
     return exitCode;
 }
-

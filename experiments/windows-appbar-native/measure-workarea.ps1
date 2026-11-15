@@ -114,4 +114,3 @@ if ($ProcessId -gt 0) {
         primary = [bool](($info.dwFlags -band 1) -ne 0)
     } | ConvertTo-Json -Compress -Depth 3
 }
-

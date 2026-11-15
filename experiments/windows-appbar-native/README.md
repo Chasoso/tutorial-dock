@@ -130,4 +130,3 @@ The command remains active while the GUI is open. Use the operator window to com
 | NAB-SC-007 no unresolved state or desktop side effect | MANUAL_PENDING | Human confirms the desktop and no remaining experiment process. |
 
 No Phase 2 work is included. A Phase 1 failure blocks WPF/WinForms comparison and requires evidence review before any new experiment.
-
