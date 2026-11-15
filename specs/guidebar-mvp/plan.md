@@ -75,7 +75,7 @@ This is a proposed Level 2 product-stack choice, not a final selection. WPF, Win
 
 **WP-GB-01 — Native AppBar guide-bar first vertical slice (candidate only)**
 
-- **Source:** this specification; requirements R-01, R-02, R-03, R-04, R-05, R-07, R-08; related AppBar AB-001–AB-004 and AB-007–AB-008.
+- **Source:** this specification; the in-scope portions of R-01, R-02, R-03, R-04, R-05, and R-07; related AppBar AB-001–AB-004 and AB-007–AB-008. R-06 image-viewer behavior, R-08 lesson-content validation, and R-09 distribution are deferred.
 - **Tasks:** `specs/guidebar-mvp/tasks.md`, T001–T008.
 - **Dependency:** merged PR #17 / the isolated Pure Win32 baseline. Issue #16 remains open and is not closed by this plan.
 - **Scope:** separate native product project; empty-at-start bar with AppBar reservation; in-memory sample fixture; step presentation/navigation; demo action and limited Settings; collapse/expand reservation update; guarded normal release; compile/static checks; one human-run Windows acceptance session.

@@ -1,7 +1,7 @@
 # Tutorial Dock Guide Bar — First Vertical Slice
 
 **Status:** Proposal — human review and implementation authorization required.
-**Source requirements:** R-01, R-02, R-03, R-04, R-05, R-07, R-08; R-09 remains deferred.
+**Source requirements touched by this proposal:** R-01–R-05 and R-07. R-06, R-08, and R-09 remain deferred.
 **Related AppBar feature specification:** [Windows AppBar work-area reservation](../windows-appbar/spec.md), especially AB-001–AB-008.
 
 This specification defines a deliberately small product-facing guide-bar slice. It does not replace the product requirements or the AppBar feature specification, and it does not declare the full MVP complete.
