@@ -83,6 +83,7 @@ Lifecycle g_lifecycle = Lifecycle::Unregistered;
 RECT g_baselineWork{};
 RECT g_acceptedRect{};
 bool g_baselineCaptured = false;
+bool g_registrationAttempted = false;
 bool g_removeAttempted = false;
 bool g_closeAllowed = false;
 bool g_appBarDestroyedUnexpectedly = false;
@@ -436,7 +437,8 @@ void RefreshControls() {
         return;
     }
     const bool canRegister = g_lifecycle == Lifecycle::Unregistered &&
-                             !g_removeAttempted && !g_inconclusive && g_loggerHealthy;
+                             !g_registrationAttempted && !g_removeAttempted &&
+                             !g_inconclusive && g_loggerHealthy;
     EnableWindow(g_registerButton, canRegister);
     EnableWindow(g_measureButton, TRUE);
     EnableWindow(g_removeButton, g_lifecycle == Lifecycle::Registered &&
@@ -661,7 +663,8 @@ void RemoveAndVerify() {
 
 void RegisterAppBar() {
     DrainObservations();
-    if (g_lifecycle != Lifecycle::Unregistered || g_removeAttempted || g_inconclusive) {
+    if (g_lifecycle != Lifecycle::Unregistered || g_registrationAttempted ||
+        g_removeAttempted || g_inconclusive) {
         SetStatus(L"Registration is unavailable in this state.");
         return;
     }
@@ -679,6 +682,7 @@ void RegisterAppBar() {
     }
 
     g_lifecycle = Lifecycle::Registering;
+    g_registrationAttempted = true;
     LogEvent("state-transition", "\"state\":\"registering\"");
     LogSnapshot("before-abm-new");
     APPBARDATA data = MakeAppBarData();
@@ -776,6 +780,7 @@ void SchedulePositionUpdate() {
     g_positionMessagePending = true;
     if (!PostUiThreadMessage(kThreadPositionUpdate)) {
         g_positionMessagePending = false;
+        g_inconclusive = true;
     }
 }
 
@@ -888,6 +893,7 @@ LRESULT CALLBACK AppBarWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         QueueMessageObservation(WindowRole::AppBar, message, wParam, true);
         if (g_lifecycle == Lifecycle::Registered) {
             APPBARDATA data = MakeAppBarData();
+            data.lParam = LOWORD(wParam) == WA_INACTIVE ? FALSE : TRUE;
             const LRESULT result = SHAppBarMessage(ABM_ACTIVATE, &data);
             QueueShellCallObservation(ABM_ACTIVATE, result);
         }
