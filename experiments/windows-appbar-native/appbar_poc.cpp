@@ -105,6 +105,9 @@ uint64_t g_bytesWritten = 0;
 DWORD g_recordsWritten = 0;
 DWORD g_logError = ERROR_SUCCESS;
 HANDLE g_logFile = INVALID_HANDLE_VALUE;
+void SetStatus(const wchar_t* text);
+void RefreshControls();
+
 uint64_t g_settleTimerStarted = 0;
 RECT g_removeOperatorRect{};
 bool g_removeOperatorRectCaptured = false;
