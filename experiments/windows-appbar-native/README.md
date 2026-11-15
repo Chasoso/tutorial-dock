@@ -15,6 +15,7 @@ Relevant protocol retained:
 - `ABN_POSCHANGED` schedules one bounded protocol update outside the callback. Up to four updates are allowed in one run; notifications are logged individually and work is coalesced while pending. Reaching the cap makes the run inconclusive and leaves Remove and Verify available.
 - `ABN_FULLSCREENAPP` handling follows the documented z-order behavior, but fullscreen compatibility is not induced or tested in this phase.
 - `ABM_REMOVE` is attempted once. Release requires its successful return, exact in-process work-area restoration, a hidden AppBar window, and unchanged operator-window bounds. If any part is unknown, both windows remain open and Safe Exit is blocked.
+- Failed precondition/baseline logging blocks `ABM_NEW`; a lost deferred position-update post marks the run inconclusive and blocks further measurements/registration while preserving Remove and Safe Exit. Unexpected operator-window destruction and a message-loop retrieval error request guarded cleanup; an unsafe quit is suppressed and a fallback message pump keeps the process available.
 
 Intentional differences from the Microsoft sample: this PoC uses a separate operator window; supports only an explicitly selected top-edge, nominal 90-physical-pixel run; omits menus, auto-hide, animation, configurable edges and product UI; measures a single-monitor baseline; uses a fixed-size message-observation queue drained by the UI message loop; and does not collect DWM extended-frame bounds. The sample's AppBar styles are retained (`WS_EX_CLIENTEDGE | WS_EX_TOOLWINDOW`, `WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN`). No fixed offset, delayed position correction, repeated polling, or correction loop is included.
 
@@ -106,7 +107,7 @@ This procedure is for a separately authorized human Windows run. Codex did not b
 | T001 reference/source review | PASS | Microsoft protocol and pinned classic-sample source reviewed; deviations documented above. |
 | T002–T004 source implementation | SOURCE_PRESENT | The isolated project, lifecycle, and measurement code are included in this PR. Build and runtime verification are tracked separately below. |
 | T005 local static checks | PASS | PowerShell parser, whitespace, path/scope and source-level lifecycle checks were run; native compiler validation remains unavailable. |
-| T005 independent review | CHANGES_REQUIRED; re-review pending | Review at `76c046410b459665580e7798eb749f4d4ae8b109` requested five fixes; the current candidate contains those fixes and requires a fresh review at its exact HEAD. |
+| T005 independent review | CHANGES_REQUIRED; re-review pending | Reviews at `76c046410b459665580e7798eb749f4d4ae8b109` and `136bb239f7ca48b605d02679e2eef19188a2d9ba` requested fixes; those findings are addressed in the current candidate, which requires a fresh exact-HEAD review. |
 | Build | NOT_RUN | MSVC and Windows SDK were unavailable in this Codex environment. |
 | NAB-SC-001 environment and source SHA | MANUAL_PENDING | Human records the exact source commit and Windows environment. |
 | NAB-SC-002 reservation / work-area change | MANUAL_PENDING | Human measures accepted rectangle and `rcWork`. |
