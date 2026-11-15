@@ -21,6 +21,7 @@ constexpr UINT kThreadCommand = WM_APP + 0x411;
 constexpr UINT kThreadPositionUpdate = WM_APP + 0x412;
 constexpr UINT kThreadFullscreen = WM_APP + 0x413;
 constexpr UINT kThreadSafeExit = WM_APP + 0x414;
+constexpr UINT kThreadOperatorDestroyed = WM_APP + 0x415;
 constexpr UINT_PTR kSettleTimer = 0x1601;
 constexpr UINT kRequestedHeight = 90;
 constexpr UINT kMaxDeferredPositionUpdates = 4;
@@ -87,6 +88,8 @@ bool g_registrationAttempted = false;
 bool g_removeAttempted = false;
 bool g_closeAllowed = false;
 bool g_appBarDestroyedUnexpectedly = false;
+bool g_operatorDestroyedUnexpectedly = false;
+bool g_operatorWarningShown = false;
 bool g_positionNotificationInProgress = false;
 bool g_positionMessagePending = false;
 bool g_drainMessagePending = false;
@@ -440,7 +443,10 @@ void RefreshControls() {
                              !g_registrationAttempted && !g_removeAttempted &&
                              !g_inconclusive && g_loggerHealthy;
     EnableWindow(g_registerButton, canRegister);
-    EnableWindow(g_measureButton, TRUE);
+    const bool canMeasure = !g_inconclusive &&
+                            g_lifecycle != Lifecycle::Removing &&
+                            g_lifecycle != Lifecycle::RemovalUnverified;
+    EnableWindow(g_measureButton, canMeasure);
     EnableWindow(g_removeButton, g_lifecycle == Lifecycle::Registered &&
                                  !g_removeAttempted);
     EnableWindow(g_exitButton, TRUE);
@@ -676,8 +682,18 @@ void RegisterAppBar() {
         SetStatus(L"Requires one monitor at 96 DPI. Do not change system settings for this run.");
         return;
     }
+    if (!g_loggerHealthy || g_inconclusive) {
+        SetStatus(L"Registration stopped because precondition evidence is incomplete. Safe Exit remains available.");
+        RefreshControls();
+        return;
+    }
     if (!CaptureBaseline()) {
         SetStatus(L"Could not capture the work-area baseline. Registration was not started.");
+        return;
+    }
+    if (!g_loggerHealthy || g_inconclusive) {
+        SetStatus(L"Registration stopped because baseline evidence is incomplete. Safe Exit remains available.");
+        RefreshControls();
         return;
     }
 
@@ -725,6 +741,12 @@ void RegisterAppBar() {
 
 void MeasureWorkArea() {
     DrainObservations();
+    if (g_inconclusive || g_lifecycle == Lifecycle::Removing ||
+        g_lifecycle == Lifecycle::RemovalUnverified) {
+        SetStatus(L"Further measurements are stopped in this state. Removal and Safe Exit remain available.");
+        RefreshControls();
+        return;
+    }
     LogSnapshot("operator-measure-work-area");
     SetStatus(g_loggerHealthy
         ? L"Read-only measurement recorded in JSONL."
@@ -758,6 +780,13 @@ void RequestSafeExit() {
     }
     SetStatus(L"Safe Exit is blocked because release is unverified. Keep both windows open and stop.");
     RefreshControls();
+    if (g_operatorDestroyedUnexpectedly && !g_operatorWarningShown) {
+        g_operatorWarningShown = true;
+        MessageBoxW(nullptr,
+                    L"The operator window was destroyed unexpectedly and release is not verified. The process will remain open. Do not force-close it or start another AppBar test; request human help.",
+                    L"Native AppBar release requires human attention",
+                    MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    }
 }
 
 bool PostUiThreadMessage(UINT message, WPARAM wParam = 0, LPARAM lParam = 0) {
@@ -960,9 +989,13 @@ LRESULT CALLBACK OperatorWindowProc(HWND window, UINT message, WPARAM wParam, LP
         }
         break;
     case WM_DESTROY:
-        if (!g_closeAllowed) {
-            g_appBarDestroyedUnexpectedly = true;
-            g_lifecycle = Lifecycle::RemovalUnverified;
+        if (!g_closeAllowed && g_lifecycle != Lifecycle::Unregistered &&
+            g_lifecycle != Lifecycle::Released) {
+            QueueMessageObservation(WindowRole::Operator, message, wParam, false);
+            g_operatorDestroyedUnexpectedly = true;
+            g_operator = nullptr;
+            PostUiThreadMessage(kThreadOperatorDestroyed);
+            return 0;
         }
         PostQuitMessage(0);
         return 0;
@@ -1008,6 +1041,40 @@ void HandleSettleTimer() {
     LogEvent("settle-measurement-fired", "\"elapsedMs\":%llu",
              static_cast<unsigned long long>(elapsed));
     LogSnapshot("after-250ms");
+}
+
+void DispatchUiMessage(MSG& message) {
+    if (message.hwnd == nullptr) {
+        switch (message.message) {
+        case kThreadDrain:
+            DrainObservations();
+            return;
+        case kThreadCommand:
+            HandleOperatorCommand(message.wParam);
+            return;
+        case kThreadPositionUpdate:
+            DrainObservations();
+            HandlePositionUpdate();
+            return;
+        case kThreadFullscreen:
+            DrainObservations();
+            HandleFullscreenNotification(message.wParam != 0);
+            return;
+        case kThreadSafeExit:
+            RequestSafeExit();
+            return;
+        case kThreadOperatorDestroyed:
+            RequestSafeExit();
+            return;
+        }
+    }
+    if (message.hwnd == g_operator && message.message == WM_TIMER &&
+        message.wParam == kSettleTimer) {
+        HandleSettleTimer();
+        return;
+    }
+    TranslateMessage(&message);
+    DispatchMessageW(&message);
 }
 
 } // namespace
@@ -1074,35 +1141,48 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     MSG message{};
     int getMessageResult = 0;
-    while ((getMessageResult = GetMessageW(&message, nullptr, 0, 0)) > 0) {
-        if (message.hwnd == nullptr) {
-            switch (message.message) {
-            case kThreadDrain:
-                DrainObservations();
-                continue;
-            case kThreadCommand:
-                HandleOperatorCommand(message.wParam);
-                continue;
-            case kThreadPositionUpdate:
-                DrainObservations();
-                HandlePositionUpdate();
-                continue;
-            case kThreadFullscreen:
-                DrainObservations();
-                HandleFullscreenNotification(message.wParam != 0);
-                continue;
-            case kThreadSafeExit:
+    bool fallbackPump = false;
+    for (;;) {
+        if (!fallbackPump) {
+            getMessageResult = GetMessageW(&message, nullptr, 0, 0);
+            if (getMessageResult == 0) {
+                break;
+            }
+            if (getMessageResult == -1) {
+                const DWORD error = GetLastError();
+                LogEvent("message-loop-error", "\"win32Error\":%lu", error);
                 RequestSafeExit();
+                if (g_lifecycle == Lifecycle::Unregistered ||
+                    g_lifecycle == Lifecycle::Released) {
+                    break;
+                }
+                fallbackPump = true;
+                SetStatus(L"Message retrieval failed. A fallback message pump is keeping the windows available; release remains unverified.");
+                LogEvent("fallback-message-pump-entered",
+                         "\"lifecycle\":\"%s\"", LifecycleNameA(g_lifecycle));
                 continue;
             }
-        }
-        if (message.hwnd == g_operator && message.message == WM_TIMER &&
-            message.wParam == kSettleTimer) {
-            HandleSettleTimer();
+            DispatchUiMessage(message);
             continue;
         }
-        TranslateMessage(&message);
-        DispatchMessageW(&message);
+
+        if (!PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            if (!WaitMessage()) {
+                Sleep(100);
+            }
+            continue;
+        }
+        if (message.message == WM_QUIT) {
+            if (g_lifecycle == Lifecycle::Unregistered ||
+                g_lifecycle == Lifecycle::Released) {
+                getMessageResult = 0;
+                break;
+            }
+            LogEvent("unsafe-quit-suppressed",
+                     "\"lifecycle\":\"%s\"", LifecycleNameA(g_lifecycle));
+            continue;
+        }
+        DispatchUiMessage(message);
     }
 
     DrainObservations();
