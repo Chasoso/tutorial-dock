@@ -1,0 +1,74 @@
+name: Issue 16 Pure Win32 AppBar build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/windows-appbar-native-build.yml'
+      - 'experiments/windows-appbar-native/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.event.pull_request.number == 17
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Check out PR source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build x64 AppBar PoC
+        shell: cmd
+        working-directory: experiments/windows-appbar-native
+        run: |
+          @echo off
+          setlocal
+          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          if not exist "%VSWHERE%" (
+            echo ERROR: vswhere.exe was not found.
+            exit /b 1
+          )
+          for /f "tokens=*" %%i in ('"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath') do set "VSINSTALLDIR=%%i"
+          if not defined VSINSTALLDIR (
+            echo ERROR: Visual Studio C++ x64 tools were not found.
+            exit /b 1
+          )
+          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -no_logo -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b 1
+          if not defined WindowsSdkDir (
+            echo ERROR: WindowsSdkDir was not set by VsDevCmd.
+            exit /b 1
+          )
+          if not defined WindowsSDKVersion (
+            echo ERROR: WindowsSDKVersion was not set by VsDevCmd.
+            exit /b 1
+          )
+          if not exist "%WindowsSdkDir%Include\%WindowsSDKVersion%um\Windows.h" (
+            echo ERROR: Windows SDK headers were not found.
+            exit /b 1
+          )
+          echo Source commit: %GITHUB_SHA%
+          echo Visual Studio: %VSINSTALLDIR%
+          echo MSVC tools: %VCToolsInstallDir%
+          echo Windows SDK: %WindowsSdkDir%Include\%WindowsSDKVersion%
+          where cl
+          cl /nologo /std:c++17 /EHsc /W4 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /MT appbar_poc.cpp /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib gdi32.lib
+          if errorlevel 1 exit /b 1
+          dumpbin /headers appbar_poc.exe | findstr /i /c:"machine (x64)"
+          if errorlevel 1 (
+            echo ERROR: The output executable is not identified as x64.
+            exit /b 1
+          )
+
+      - name: Upload compiled executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-16-appbar-poc
+          path: experiments/windows-appbar-native/appbar_poc.exe
+          if-no-files-found: error
+          retention-days: 14
