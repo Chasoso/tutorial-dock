@@ -970,7 +970,7 @@ LRESULT CALLBACK AppBarWindowProc(HWND window, UINT message, WPARAM wParam, LPAR
         HDC dc = BeginPaint(window, &paint);
         RECT client{};
         GetClientRect(window, &client);
-        FillRect(dc, &client, g_barBrush ? g_barBrush : static_cast<HBRUSH>(GetStockObject(BLUE_BRUSH)));
+        FillRect(dc, &client, g_barBrush ? g_barBrush : static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
         EndPaint(window, &paint);
         return 0;
     }
@@ -990,8 +990,16 @@ LRESULT CALLBACK OperatorWindowProc(HWND window, UINT message, WPARAM wParam, LP
         break;
     case WM_COMMAND: {
         const int command = LOWORD(wParam);
-        if (command == kButtonRegister || command == kButtonMeasure ||
-            command == kButtonRemove || command == kButtonExit) {
+        HWND expectedSource = nullptr;
+        switch (command) {
+        case kButtonRegister: expectedSource = g_registerButton; break;
+        case kButtonMeasure: expectedSource = g_measureButton; break;
+        case kButtonRemove: expectedSource = g_removeButton; break;
+        case kButtonExit: expectedSource = g_exitButton; break;
+        default: break;
+        }
+        if (expectedSource && HIWORD(wParam) == BN_CLICKED &&
+            reinterpret_cast<HWND>(lParam) == expectedSource) {
             PostUiThreadMessage(kThreadCommand, static_cast<WPARAM>(command));
             return 0;
         }
@@ -1023,7 +1031,7 @@ bool RegisterWindowClasses() {
     appBarClass.lpfnWndProc = AppBarWindowProc;
     appBarClass.hInstance = g_instance;
     appBarClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    appBarClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLUE_BRUSH));
+    appBarClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     appBarClass.lpszClassName = kAppBarClass;
     if (!RegisterClassExW(&appBarClass)) {
         return false;
