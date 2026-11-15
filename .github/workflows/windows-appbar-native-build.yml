@@ -76,6 +76,17 @@ jobs:
             echo ERROR: Windows SDK headers were not found.
             exit /b 1
           )
+          set "VCTOOLS_DIR=%VSINSTALLDIR%\VC\Tools\MSVC\%MSVC_TOOLS_VERSION%"
+          set "INCLUDE=%VCTOOLS_DIR%\include;%WindowsSdkDir%Include\%WindowsSDKVersion%ucrt;%WindowsSdkDir%Include\%WindowsSDKVersion%shared;%WindowsSdkDir%Include\%WindowsSDKVersion%um;%INCLUDE%"
+          set "LIB=%VCTOOLS_DIR%\lib\x64;%WindowsSdkDir%Lib\%WindowsSDKVersion%ucrt\x64;%WindowsSdkDir%Lib\%WindowsSDKVersion%um\x64;%LIB%"
+          if not exist "%VCTOOLS_DIR%\include\excpt.h" (
+            echo ERROR: MSVC C runtime headers were not found.
+            exit /b 1
+          )
+          if not exist "%VCTOOLS_DIR%\lib\x64\libcmt.lib" (
+            echo ERROR: MSVC x64 static runtime libraries were not found.
+            exit /b 1
+          )
           echo PR source commit: %SOURCE_SHA%
           echo Visual Studio: %VSINSTALLDIR%
           echo Windows SDK: %WindowsSdkDir%Include\%WindowsSDKVersion%
