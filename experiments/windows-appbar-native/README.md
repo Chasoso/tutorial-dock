@@ -107,7 +107,7 @@ This procedure is for a separately authorized human Windows run. Codex did not b
 | T001 reference/source review | PASS | Microsoft protocol and pinned classic-sample source reviewed; deviations documented above. |
 | T002–T004 source implementation | SOURCE_PRESENT | The isolated project, lifecycle, and measurement code are included in this PR. Build and runtime verification are tracked separately below. |
 | T005 local static checks | PASS | PowerShell parser, whitespace, path/scope and source-level lifecycle checks were run; native compiler validation remains unavailable. |
-| T005 independent review | CHANGES_REQUIRED; re-review pending | Reviews at `76c046410b459665580e7798eb749f4d4ae8b109` and `136bb239f7ca48b605d02679e2eef19188a2d9ba` requested fixes; those findings are addressed in the current candidate, which requires a fresh exact-HEAD review. |
+| T005 independent review | CHANGES_REQUIRED; review limit reached | The third permitted review at `073a2fd46261a566cbefc0a087b1c893522bb980` requested a final pre-`ABM_NEW` logging gate and cleanup scheduling after unexpected operator destruction. Both were applied afterward; the latest candidate has not been independently reviewed and is not a PASS. |
 | Build | NOT_RUN | MSVC and Windows SDK were unavailable in this Codex environment. |
 | NAB-SC-001 environment and source SHA | MANUAL_PENDING | Human records the exact source commit and Windows environment. |
 | NAB-SC-002 reservation / work-area change | MANUAL_PENDING | Human measures accepted rectangle and `rcWork`. |
