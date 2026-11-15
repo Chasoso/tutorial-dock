@@ -47,7 +47,16 @@ jobs:
             echo Visual Studio: %VSINSTALLDIR%
             exit /b 1
           )
-          call "%VCVARSALL%" amd64
+          for /f "delims=" %%v in ('dir /b /ad /o-n "%VSINSTALLDIR%\VC\Tools\MSVC"') do (
+            if not defined MSVC_TOOLS_VERSION if exist "%VSINSTALLDIR%\VC\Tools\MSVC\%%v\bin\Hostx64\x64\cl.exe" set "MSVC_TOOLS_VERSION=%%v"
+          )
+          if not defined MSVC_TOOLS_VERSION (
+            echo ERROR: No x64 MSVC compiler was found under the selected Visual Studio installation.
+            exit /b 1
+          )
+          for /f "tokens=1,2 delims=." %%a in ("%MSVC_TOOLS_VERSION%") do set "VCVARS_VER=%%a.%%b"
+          echo Selected MSVC toolset: %MSVC_TOOLS_VERSION%
+          call "%VCVARSALL%" amd64 -vcvars_ver=%VCVARS_VER%
           if errorlevel 1 exit /b 1
           if not defined WindowsSdkDir (
             echo ERROR: WindowsSdkDir was not set by vcvarsall.bat.
