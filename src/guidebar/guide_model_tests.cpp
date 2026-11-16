@@ -1,4 +1,5 @@
 #include "guide_model.h"
+#include "guidebar_lifecycle.h"
 #include "reservation_update.h"
 
 #include <iostream>
@@ -97,6 +98,45 @@ void TestReservationUpdateRollback() {
           "successful update does not invoke rollback");
 }
 
+void TestReservationLifecycleTransitionsAndExitGuard() {
+    const auto applied = tutorial_dock::TransitionAfterReservationUpdate(
+        tutorial_dock::ReservationUpdateResult::Applied);
+    Check(applied.lifecycle == tutorial_dock::GuideBarLifecycle::Registered,
+          "confirmed update retains registered lifecycle");
+    Check(applied.reservationConfirmed && !applied.showDegradedFallback,
+          "confirmed update does not enter fallback");
+
+    const auto rolledBack = tutorial_dock::TransitionAfterReservationUpdate(
+        tutorial_dock::ReservationUpdateResult::RolledBack);
+    Check(rolledBack.lifecycle == tutorial_dock::GuideBarLifecycle::Registered,
+          "confirmed rollback returns to registered lifecycle");
+    Check(rolledBack.reservationConfirmed && !rolledBack.showDegradedFallback,
+          "confirmed rollback preserves the confirmed presentation");
+
+    const auto unconfirmed = tutorial_dock::TransitionAfterReservationUpdate(
+        tutorial_dock::ReservationUpdateResult::Unconfirmed);
+    Check(unconfirmed.lifecycle == tutorial_dock::GuideBarLifecycle::ReservationUnverified,
+          "unconfirmed update remains explicitly uncertain");
+    Check(!unconfirmed.reservationConfirmed && unconfirmed.showDegradedFallback,
+          "unconfirmed update requests visible degraded fallback");
+    Check(tutorial_dock::CanUseGuideLessonControls(unconfirmed.lifecycle),
+          "guide remains usable in degraded fallback state");
+
+    Check(tutorial_dock::ShouldAttemptRemovalBeforeExit(true, false),
+          "safe exit attempts guarded removal when registration may remain");
+    Check(!tutorial_dock::ShouldAttemptRemovalBeforeExit(true, true),
+          "safe exit does not repeat a completed removal attempt");
+    Check(!tutorial_dock::CanDestroyGuideBarWindow(true,
+              tutorial_dock::GuideBarLifecycle::ReservationUnverified),
+          "unverified reservation blocks window destruction");
+    Check(!tutorial_dock::CanDestroyGuideBarWindow(false,
+              tutorial_dock::GuideBarLifecycle::ReservationUnverified),
+          "uncertain lifecycle blocks destruction even without registration flag");
+    Check(tutorial_dock::CanDestroyGuideBarWindow(false,
+              tutorial_dock::GuideBarLifecycle::Released),
+          "confirmed release allows guarded window destruction");
+}
+
 void TestHeightChangesDoNotMutateLessonPosition() {
     tutorial_dock::GuideModel model;
     model.LoadSampleLesson();
@@ -133,6 +173,7 @@ void TestHeightChangesDoNotMutateLessonPosition() {
 int main() {
     TestEmptyAndSampleNavigation();
     TestReservationUpdateRollback();
+    TestReservationLifecycleTransitionsAndExitGuard();
     TestHeightChangesDoNotMutateLessonPosition();
     if (g_failures != 0) {
         std::cerr << g_failures << " test(s) failed.\n";

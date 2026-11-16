@@ -6,6 +6,7 @@
 #include <commctrl.h>
 
 #include "guide_model.h"
+#include "guidebar_lifecycle.h"
 #include "reservation_update.h"
 
 #include <algorithm>
@@ -16,6 +17,7 @@ namespace {
 constexpr wchar_t kWindowClass[] = L"TutorialDockGuideBar";
 constexpr UINT kAppBarCallback = WM_APP + 0x51;
 constexpr UINT kDeferredPositionUpdate = WM_APP + 0x52;
+constexpr UINT kDeferredUnverifiedFallback = WM_APP + 0x53;
 constexpr int kNormalHeight = 90;
 constexpr int kCollapsedHeight = 34;
 constexpr unsigned int kMaxPositionUpdatesPerBurst = 4;
@@ -36,17 +38,7 @@ constexpr UINT kMenuLoadSample = 2001;
 constexpr UINT kMenuReservationStatus = 2002;
 constexpr UINT kMenuExit = 2003;
 
-enum class Lifecycle {
-    Unregistered,
-    Registering,
-    Registered,
-    Updating,
-    ReservationUnverified,
-    Removing,
-    RemovalUnverified,
-    Released,
-    Fallback
-};
+using Lifecycle = tutorial_dock::GuideBarLifecycle;
 
 HINSTANCE g_instance = nullptr;
 HWND g_window = nullptr;
@@ -83,8 +75,15 @@ bool g_destroyAllowed = false;
 bool g_positionUpdatePending = false;
 bool g_shellPositionNotificationInProgress = false;
 bool g_positionUpdateInProgress = false;
+bool g_degradedFallbackVisible = false;
+bool g_degradedFallbackPending = false;
 ULONGLONG g_positionBurstStarted = 0;
 unsigned int g_positionUpdatesInBurst = 0;
+
+enum class DeferredFallbackReason : WPARAM {
+    PositionBurstLimit = 1,
+    PositionUpdateQueueFailure = 2
+};
 
 const wchar_t* LifecycleText(Lifecycle state) {
     switch (state) {
@@ -120,7 +119,7 @@ void SetStatus(const std::wstring& text) {
 }
 
 bool CanUseLessonControls() {
-    return g_lifecycle == Lifecycle::Registered || g_lifecycle == Lifecycle::Fallback;
+    return tutorial_dock::CanUseGuideLessonControls(g_lifecycle);
 }
 
 void LayoutControls() {
@@ -136,7 +135,7 @@ void LayoutControls() {
     const int rightStart = std::max(16, width - 512);
     const int leftWidth = std::max(180, rightStart - 32);
 
-    if (g_confirmedHeight == kCollapsedHeight) {
+    if (g_confirmedHeight == kCollapsedHeight && !g_degradedFallbackVisible) {
         MoveWindow(g_header, 16, 4, leftWidth, std::max(22, height - 8), TRUE);
         ShowWindow(g_description, SW_HIDE);
         ShowWindow(g_progress, SW_HIDE);
@@ -343,6 +342,56 @@ bool ShowFallback(const std::wstring& reason) {
     return IsWindowVisible(g_window) != FALSE;
 }
 
+bool ShowUnverifiedTopmostFallback(const std::wstring& reason) {
+    // Keep the reservation explicitly uncertain. This is a one-shot visual
+    // fallback only; it does not claim that Shell state or rcWork was cleared.
+    g_lifecycle = Lifecycle::ReservationUnverified;
+    const int width = g_baselineCaptured
+        ? g_monitorInfo.rcMonitor.right - g_monitorInfo.rcMonitor.left
+        : GetSystemMetrics(SM_CXSCREEN);
+    const int left = g_baselineCaptured ? g_monitorInfo.rcMonitor.left : 0;
+    const int top = g_baselineCaptured ? g_monitorInfo.rcMonitor.top : 0;
+    const BOOL placed = g_window && IsWindow(g_window) &&
+        SetWindowPos(g_window, HWND_TOPMOST, left, top, width, kNormalHeight,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (placed) {
+        g_degradedFallbackVisible = true;
+        ShowWindow(g_window, SW_SHOWNOACTIVATE);
+    }
+    const bool visible = g_window && IsWindowVisible(g_window);
+    if (placed && visible) {
+        SetStatus(L"Reservation is unconfirmed. A one-shot topmost fallback is visible; OS reservation state remains unknown. " + reason);
+    } else {
+        SetStatus(L"Reservation is unconfirmed and topmost fallback placement could not be confirmed. Keep the window open and use guarded Safe Exit. " + reason);
+    }
+    RefreshView();
+    return placed && visible;
+}
+
+void QueueUnverifiedTopmostFallback(DeferredFallbackReason reason) {
+    g_lifecycle = Lifecycle::ReservationUnverified;
+    if (g_degradedFallbackPending) {
+        return;
+    }
+    g_degradedFallbackPending = true;
+    if (!PostMessageW(g_window, kDeferredUnverifiedFallback,
+                      static_cast<WPARAM>(reason), 0)) {
+        g_degradedFallbackPending = false;
+        SetStatus(L"Reservation is unconfirmed and the topmost fallback could not be queued. Keep the window open and use guarded Safe Exit.");
+        RefreshView();
+    }
+}
+
+const wchar_t* DeferredFallbackReasonText(WPARAM reason) {
+    switch (static_cast<DeferredFallbackReason>(reason)) {
+    case DeferredFallbackReason::PositionBurstLimit:
+        return L"Repeated Shell position notifications exceeded the bounded update limit.";
+    case DeferredFallbackReason::PositionUpdateQueueFailure:
+        return L"A Shell position update could not be queued.";
+    }
+    return L"A Shell position update could not be confirmed.";
+}
+
 bool RemoveAndVerify();
 
 void RegisterAtStartup() {
@@ -425,7 +474,8 @@ bool RemoveAndVerify() {
 
 void RequestSafeExit() {
     if (g_mayBeRegistered) {
-        if (!g_removeAttempted) {
+        if (tutorial_dock::ShouldAttemptRemovalBeforeExit(
+                g_mayBeRegistered, g_removeAttempted)) {
             RemoveAndVerify();
         }
         if (g_lifecycle != Lifecycle::Released) {
@@ -461,18 +511,19 @@ void ChangeHeight(int requestedHeight) {
     const auto result = tutorial_dock::ApplyReservationUpdateWithRollback(
         previousHeight, requestedHeight,
         [](int height) { return ApplyAndVerifyHeight(height); });
+    const auto transition = tutorial_dock::TransitionAfterReservationUpdate(result);
+    g_lifecycle = transition.lifecycle;
 
     if (result == tutorial_dock::ReservationUpdateResult::Applied) {
         g_confirmedHeight = requestedHeight;
-        g_lifecycle = Lifecycle::Registered;
         SetStatus(L"The new AppBar height and work area are confirmed.");
     } else if (result == tutorial_dock::ReservationUpdateResult::RolledBack) {
         g_confirmedHeight = previousHeight;
-        g_lifecycle = Lifecycle::Registered;
         SetStatus(L"The size update failed; the previous confirmed reservation was restored.");
     } else {
-        g_lifecycle = Lifecycle::ReservationUnverified;
-        SetStatus(L"The size update and rollback are unconfirmed. Stop and use Safe Exit for guarded cleanup.");
+        ShowUnverifiedTopmostFallback(
+            L"The requested size and one rollback attempt were not confirmed.");
+        return;
     }
     RefreshView();
 }
@@ -489,18 +540,14 @@ void ScheduleShellPositionUpdate() {
         g_positionUpdatesInBurst = 0;
     }
     if (g_positionUpdatesInBurst >= kMaxPositionUpdatesPerBurst) {
-        g_lifecycle = Lifecycle::ReservationUnverified;
-        SetStatus(L"Repeated Shell position notifications exceeded the bounded update limit. Stop and use Safe Exit.");
-        RefreshView();
+        QueueUnverifiedTopmostFallback(DeferredFallbackReason::PositionBurstLimit);
         return;
     }
 
     g_positionUpdatePending = true;
     if (!PostMessageW(g_window, kDeferredPositionUpdate, 0, 0)) {
         g_positionUpdatePending = false;
-        g_lifecycle = Lifecycle::ReservationUnverified;
-        SetStatus(L"A Shell position update could not be queued. Reservation state is unconfirmed; use Safe Exit.");
-        RefreshView();
+        QueueUnverifiedTopmostFallback(DeferredFallbackReason::PositionUpdateQueueFailure);
     }
 }
 
@@ -517,7 +564,8 @@ void HandleShellPositionUpdate() {
     }
     if (g_positionUpdatesInBurst >= kMaxPositionUpdatesPerBurst) {
         g_lifecycle = Lifecycle::ReservationUnverified;
-        SetStatus(L"Repeated Shell position notifications exceeded the bounded update limit. Stop and use Safe Exit.");
+        ShowUnverifiedTopmostFallback(
+            L"Repeated Shell position notifications exceeded the bounded update limit.");
         RefreshView();
         return;
     }
@@ -525,13 +573,17 @@ void HandleShellPositionUpdate() {
     ++g_positionUpdatesInBurst;
     g_lifecycle = Lifecycle::Updating;
     g_positionUpdateInProgress = true;
-    const bool confirmed = ApplyAndVerifyHeight(g_confirmedHeight);
+    const auto result = tutorial_dock::ApplyReservationUpdateWithRollback(
+        g_confirmedHeight, g_confirmedHeight,
+        [](int height) { return ApplyAndVerifyHeight(height); });
     g_positionUpdateInProgress = false;
-    if (confirmed) {
-        g_lifecycle = Lifecycle::Registered;
-    } else {
-        g_lifecycle = Lifecycle::ReservationUnverified;
-        SetStatus(L"A Shell position update could not be confirmed. Stop and use Safe Exit for cleanup.");
+    const auto transition = tutorial_dock::TransitionAfterReservationUpdate(result);
+    g_lifecycle = transition.lifecycle;
+    if (transition.showDegradedFallback) {
+        ShowUnverifiedTopmostFallback(
+            L"A Shell position update and one restoration attempt could not be confirmed.");
+    } else if (result == tutorial_dock::ReservationUpdateResult::RolledBack) {
+        SetStatus(L"A Shell position update failed; the last confirmed reservation was restored.");
     }
     RefreshView();
 }
@@ -602,6 +654,10 @@ void ShowSettingsMenu() {
 }
 
 void HandleButtonClick(int controlId) {
+    if (controlId == kControlSettings) {
+        ShowSettingsMenu();
+        return;
+    }
     if (!CanUseLessonControls()) {
         return;
     }
@@ -625,9 +681,6 @@ void HandleButtonClick(int controlId) {
             SetStatus(L"Moved to the next sample step.");
         }
         break;
-    case kControlSettings:
-        ShowSettingsMenu();
-        return;
     case kControlCollapse:
         if (g_lifecycle == Lifecycle::Registered) {
             ChangeHeight(g_confirmedHeight == kNormalHeight
@@ -675,6 +728,14 @@ LRESULT CALLBACK GuideBarWindowProc(HWND window, UINT message,
     }
     case kDeferredPositionUpdate:
         HandleShellPositionUpdate();
+        return 0;
+    case kDeferredUnverifiedFallback:
+        g_degradedFallbackPending = false;
+        if (g_mayBeRegistered &&
+            g_lifecycle == Lifecycle::ReservationUnverified) {
+            ShowUnverifiedTopmostFallback(
+                DeferredFallbackReasonText(wParam));
+        }
         return 0;
     case kAppBarCallback:
         if (wParam == ABN_POSCHANGED) {
@@ -745,10 +806,7 @@ bool RegisterWindowClass() {
 }
 
 bool IsSafeToExit() {
-    return !g_mayBeRegistered &&
-        (g_lifecycle == Lifecycle::Fallback ||
-         g_lifecycle == Lifecycle::Released ||
-         g_lifecycle == Lifecycle::Unregistered);
+    return tutorial_dock::CanDestroyGuideBarWindow(g_mayBeRegistered, g_lifecycle);
 }
 
 int RunMessageLoop() {

@@ -28,7 +28,7 @@ Build output is ignored under `build/` and is not source-controlled.
 - The bar contains native Win32 controls for step content, progress, a local demo action, Previous/Next, Settings, and Collapse/Expand.
 - Settings provides an explicit in-memory sample lesson action, reservation status, and Safe Exit.
 - The model is UI-independent. It contains three deterministic sample steps and bounded navigation.
-- Normal and collapsed heights use provisional 90 px and 34 px values. A resize request is considered applied only after the shell calls, window rectangle, and measured work area agree. If an update fails, the code attempts one rollback to the last confirmed height; an unconfirmed rollback leaves the window alive and blocks exit.
+- Normal and collapsed heights use provisional 90 px and 34 px values. A resize request is considered applied only after the shell calls, window rectangle, and measured work area agree. If an update fails, the code attempts one rollback to the last confirmed height; an unconfirmed rollback keeps the reservation explicitly uncertain, shows a one-shot topmost degraded fallback, and keeps guarded cleanup available.
 - `ABN_POSCHANGED` is handled with a posted, coalesced update and a finite burst limit. `WM_WINDOWPOSCHANGED` informs the Shell. No fixed offset or repeated correction loop is used.
 - Normal exit goes through `ABM_REMOVE` and in-process baseline work-area verification before the AppBar HWND is destroyed. An uncertain release keeps the process/window available and reports the uncertainty.
 - Abnormal termination recovery is not guaranteed by this slice.
@@ -79,9 +79,9 @@ Stop the run if registration, a size update, rollback, removal, the work-area me
 
 | Check | Result |
 |---|---|
-| Model and rollback test source | Added; local execution pending available C++ toolchain |
+| Model, rollback, lifecycle-transition, and exit-guard test source | Added; local execution pending available C++ toolchain |
 | Local MSVC/Windows SDK build | `NOT_RUN` in this environment unless a toolchain is detected later |
-| GitHub Actions x64 compile and model tests | `NOT_RUN` until the PR workflow runs |
+| GitHub Actions x64 compile and model tests | Initial run failed before compilation because `cl` was not found after `vcvarsall`; workflow now resolves the compiler from `VCToolsInstallDir`, rerun pending |
 | Product executable launch / AppBar / work-area changes | `MANUAL_PENDING` (not run by Codex) |
 | T008 Windows acceptance | `MANUAL_PENDING` |
 | Independent review | Pending latest candidate HEAD |
