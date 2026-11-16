@@ -25,12 +25,14 @@ No part of upstream PR #1476 is added to the approved dependency patch. The newl
 
 ## Compatibility comparison
 
-The Windows workflow builds the same independent test program twice against static yaml-cpp with MSVC x64 and `/MT`:
+The Windows workflow is intended to build the same independent test program twice against static yaml-cpp with MSVC x64 and `/MT`:
 
-1. **Baseline:** exact upstream commit, unmodified. It must reproduce the known quoted-scalar trailing-newline mismatch for both quote styles and trailing newline counts 2–4. All other cases must match their explicit expected values.
+1. **Baseline:** exact upstream commit, unmodified. The run at `dea5fc58fed62b5eb26ae92f04a7d4cc0e8cbf02` built this test program and reproduced the six known quoted-scalar trailing-newline mismatches for both quote styles and trailing newline counts 2–4. It also found an additional mismatch in `folded-keep`: YAML 1.2.2 §8.1.1.2 says `+` keeps the final line break and all trailing empty lines ([specification](https://yaml.org/spec/1.2.2/)); for the fixture's three trailing line feeds, the expected value has three, while yaml-cpp 0.9.0 returned two. This is an unresolved compatibility discrepancy outside the PR #1512 quoted-scalar patch, so the baseline suite **FAILS**.
 2. **Patched:** the exact base commit plus the hash-checked one-line patch. Every case must match its expected value.
 
-The expected values are encoded independently in [`harness/compatibility_tests.cpp`](harness/compatibility_tests.cpp), based on YAML scalar folding and chomping rules. Coverage includes single- and double-quoted multiline scalars, trailing newline counts 0–4, escaped line breaks and escaped `\\n`, literal `|`/`|+`/`|-`, folded `>`/`>+`/`>-`, Japanese UTF-8, empty strings, and ordinary single-line text. The baseline mismatch is expected evidence of the defect, not a passing patched result.
+The expected values are encoded independently in [`harness/compatibility_tests.cpp`](harness/compatibility_tests.cpp), based on YAML scalar folding and chomping rules. Coverage includes single- and double-quoted multiline scalars, trailing newline counts 0–4, escaped line breaks and escaped `\\n`, literal `|`/`|+`/`|-`, folded `>`/`>+`/`>-`, Japanese UTF-8, empty strings, and ordinary single-line text. The six quoted-scalar mismatches are expected baseline evidence; the additional folded-block mismatch is not.
+
+The baseline CTest failure stops the script before the patched build and resource-bound tests. Those results are **NOT_RUN**; the quoted-scalar patch is not qualified by this run.
 
 ## Resource-bound qualification
 
@@ -42,7 +44,7 @@ The expected values are encoded independently in [`harness/compatibility_tests.c
 - After the bounded event stream has been collected, walk the retained anchor/alias graph with an active-path cycle check, counting the alias occurrence and every target node on every expansion; abort before visit 20,001 and when expansion depth exceeds 16.
 - Only after this bounded parse/walk, count the lesson's steps and buttons before any typed lesson model is built. The tests cover 500/501 steps, 64/65 buttons per step, and 1,024/1,025 buttons per lesson.
 
-The tests exercise exact and one-over boundaries, multiple documents, a cycle, and a nested-alias expansion input. This is a qualification prototype for the bounded parser path; production integration still requires applying the same order of checks and retaining the OS-independent tests. CI runs only this test executable, never the product executable, AppBar APIs, or work-area mutations.
+The test code is designed to exercise exact and one-over boundaries, multiple documents, a cycle, and a nested-alias expansion input. Because compatibility fails first, none of these resource-bound cases has run. This is a qualification prototype for the bounded parser path; production integration still requires applying the same order of checks and retaining the OS-independent tests. CI runs only this test executable, never the product executable, AppBar APIs, or work-area mutations.
 
 ## Reproduction
 
@@ -67,6 +69,14 @@ The script refuses to overwrite an existing build directory. It requires CMake, 
 
 ## Verification status
 
-- CVE-2026-75432 applicability for the pinned 0.9.0 source: **NOT_AFFECTED by source provenance; isolated sanitizer confirmation is NOT_RUN until Actions completes**. This does not assert that the parser is free of other vulnerabilities.
-- Newline-patch Windows x64 compilation and compatibility/resource-bound tests: **NOT_RUN** until Actions completes.
-- Product code, product build, product executable, and Windows/AppBar runtime operation: **NOT_RUN / out of scope**.
+Tested qualification HEAD: `dea5fc58fed62b5eb26ae92f04a7d4cc0e8cbf02` — [GitHub Actions run 43925280319](https://github.com/Chasoso/tutorial-dock/actions/runs/43925280319).
+
+- CVE-2026-75432 applicability for pinned 0.9.0: **NOT_AFFECTED by source provenance**. The three-revision ASan/UBSan matrix **PASS**ed: pinned 0.9.0 and the fix commit returned the expected parser exception; the post-introduction/pre-fix revision produced the expected sanitizer finding. This is specific to this CVE and does not establish that the parser has no other vulnerabilities.
+- Patch SHA-256 `CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141`, hunk integrity, and application to the pinned source: **PASS** on Windows CI.
+- Windows x64 baseline build: **PASS** with MSVC 19.44.35230.0 and Windows SDK 10.0.26100.0; static yaml-cpp and `/MT` configuration checks passed.
+- Baseline scalar compatibility: **FAIL** because of the additional `folded-keep` discrepancy described above. The six quoted-scalar baseline mismatches were expected reproductions.
+- Patched parser build and compatibility tests: **NOT_RUN** because the baseline suite stopped first.
+- Resource-bound runtime tests: **NOT_RUN** because the compatibility suite stopped first. Resource enforcement is therefore not qualified.
+- T001: **NOT_PASSED / STOPPED**. The new block-scalar discrepancy is unresolved and resource-limit execution is outstanding; do not resume T002–T008 or integrate yaml-cpp into product code.
+- T002–T008: **NOT_STARTED**.
+- Product code, product build/executable, and Windows/AppBar runtime operation: **NOT_RUN / out of scope**.
