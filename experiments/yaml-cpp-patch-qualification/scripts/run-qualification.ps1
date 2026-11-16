@@ -71,6 +71,17 @@ function Test-CacheSetting {
     return [bool]($Cache | Where-Object { $_ -match $Pattern })
 }
 
+function Get-ImportedDllNames {
+    param([string[]]$DumpbinOutput)
+    $names = @()
+    foreach ($line in $DumpbinOutput) {
+        if ($line -match '^\s*([A-Z0-9_.-]+\.DLL)\s*$') {
+            $names += $Matches[1].ToUpperInvariant()
+        }
+    }
+    return $names
+}
+
 function Test-BuiltBinaryDependencies {
     param([string]$Variant, [string]$BuildDir)
     $logPath = Join-Path $ReportRoot "runtime-$Variant.log"
@@ -101,16 +112,17 @@ function Test-BuiltBinaryDependencies {
         $dependentsExit = $LASTEXITCODE
         $dependents | Add-Content -LiteralPath $logPath -Encoding utf8
         $isX64 = $headersExit -eq 0 -and [bool]($headers | Where-Object { $_ -match '8664 machine \(x64\)' })
-        $runtimeImports = @($dependents | Where-Object {
-            $_ -match '(?i)^\s*(VCRUNTIME\d*(?:_\d+)?|MSVCP\d*(?:_\d+)?|UCRTBASE|CONCRT\d*|API-MS-WIN-CRT-[^\s]+)\.DLL\s*$' -or
-            $_ -match '(?i)^\s*YAML-CPP\.DLL\s*$'
-        })
-        if ($dependentsExit -ne 0 -or -not $isX64 -or $runtimeImports.Count -gt 0) {
+        $importedDlls = @(Get-ImportedDllNames $dependents)
+        $allowedDlls = @('KERNEL32.DLL')
+        $unexpectedDlls = @($importedDlls | Where-Object { $_ -notin $allowedDlls } | Sort-Object -Unique)
+        $missingAllowedDlls = @($allowedDlls | Where-Object { $_ -notin $importedDlls })
+        "IMPORTED_DLLS=$($importedDlls -join ',')" | Add-Content -LiteralPath $logPath -Encoding utf8
+        if ($dependentsExit -ne 0 -or -not $isX64 -or $unexpectedDlls.Count -gt 0 -or $missingAllowedDlls.Count -gt 0) {
             $allPassed = $false
-            "DEPENDENCY_RESULT=FAIL x64=$isX64 dumpbinExit=$dependentsExit unexpectedRuntimeImports=$($runtimeImports -join ',')" |
+            "DEPENDENCY_RESULT=FAIL x64=$isX64 dumpbinExit=$dependentsExit unexpectedImports=$($unexpectedDlls -join ',') missingExpectedImports=$($missingAllowedDlls -join ',')" |
                 Add-Content -LiteralPath $logPath -Encoding utf8
         } else {
-            "DEPENDENCY_RESULT=PASS x64=$isX64; no dynamic MSVC/UCRT runtime imports" |
+            "DEPENDENCY_RESULT=PASS x64=$isX64; exact allowed DLL import set: KERNEL32.dll" |
                 Add-Content -LiteralPath $logPath -Encoding utf8
         }
     }
