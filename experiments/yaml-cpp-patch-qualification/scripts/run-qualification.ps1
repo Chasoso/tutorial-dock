@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $BaseSha = '56e3bb550c91fd7005566f19c079cb7a503223cf'
-$ExpectedPatchSha256 = '6DF0A52FB8133677A9F1E30F48105F9571CC31AE95E0A92EEFFDE64D694D38DD'
+$ExpectedPatchSha256 = 'CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141'
 $PatchFile = Join-Path $PSScriptRoot '..\patches\preserve-quoted-scalar-trailing-newlines.patch'
 $Harness = Join-Path $PSScriptRoot '..\harness'
 

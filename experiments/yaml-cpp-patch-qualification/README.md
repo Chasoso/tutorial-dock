@@ -8,7 +8,7 @@ This isolated qualification harness tests the approved one-line fix from upstrea
 - Base version: 0.9.0
 - Base commit: `56e3bb550c91fd7005566f19c079cb7a503223cf`
 - Local patch: [`patches/preserve-quoted-scalar-trailing-newlines.patch`](patches/preserve-quoted-scalar-trailing-newlines.patch)
-- Patch SHA-256: `6DF0A52FB8133677A9F1E30F48105F9571CC31AE95E0A92EEFFDE64D694D38DD`
+- Patch SHA-256: `CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141` (LF-normalized file; `.gitattributes` preserves LF on Windows)
 - Patch content: change only `Scanner::ScanQuotedScalar` from `params.chomp = CLIP` to `params.chomp = KEEP`. The pinned upstream source is checked out twice; the patch is applied only to the second clean checkout. The script verifies both source HEADs, patch hash, changed path, and one-line replacement before either build.
 
 The corresponding upstream PR was still open and unmerged when this qualification was prepared. The test never checks out the PR head as a dependency. The pinned source includes the MIT license. The [upstream security policy](https://github.com/jbeder/yaml-cpp/blob/master/SECURITY.md) says only the latest release receives security updates and maintenance is best-effort; the [0.9.0 release page](https://github.com/jbeder/yaml-cpp/releases/tag/yaml-cpp-0.9.0) currently marks this tag as latest and shows its commit as verified. The [GitHub advisories page](https://github.com/jbeder/yaml-cpp/security/advisories) currently lists no published repository advisories. This does not negate CVEs recorded elsewhere or establish that the library has no vulnerabilities.
