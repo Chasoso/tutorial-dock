@@ -78,13 +78,9 @@ function Build-And-Test {
     if (-not ($cache -match '^YAML_BUILD_SHARED_LIBS:BOOL=OFF$')) {
         throw "$Variant yaml-cpp build is not static."
     }
-    $sdk = $cache | Where-Object { $_ -match '^CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION:[^=]+=.+' } | Select-Object -First 1
-    if (-not $sdk) {
-        throw "$Variant build did not report the selected Windows SDK version."
-    }
     Write-Host "VARIANT=$Variant"
     Write-Host 'MSVC compiler: required by CMake configuration guard; version is printed during configure.'
-    Write-Host "MSVC/SDK cache: $sdk"
+    Write-Host 'Windows SDK: required and printed by the CMake configuration guard.'
 
     Invoke-Native -File 'cmake' -Arguments @('--build', $buildDir, '--config', 'Release', '--parallel', '2')
     Invoke-Native -File 'ctest' -Arguments @('--test-dir', $buildDir, '-C', 'Release', '--output-on-failure')
