@@ -79,9 +79,10 @@ Stop the run if registration, a size update, rollback, removal, the work-area me
 
 | Check | Result |
 |---|---|
-| Model, rollback, lifecycle-transition, and exit-guard test source | Added; local execution pending available C++ toolchain |
-| Local MSVC/Windows SDK build | `NOT_RUN` in this environment unless a toolchain is detected later |
-| GitHub Actions x64 compile and model tests | Initial run failed before compilation because `cl` was not found after `vcvarsall`; workflow now resolves the compiler from `VCToolsInstallDir`, rerun pending |
+| Model, rollback, lifecycle-transition, and exit-guard tests | `PASS` in GitHub Actions run [#43804408522](https://github.com/Chasoso/tutorial-dock/actions/runs/43804408522) |
+| Local MSVC/Windows SDK build and local model-test execution | `NOT_RUN`; no local C++ toolchain is available |
+| GitHub Actions x64 product build | `PASS` for source SHA `133b6346e0bd7331ff919a96ea88680b39b3dc05`; Visual Studio 2022 17.14.45 and Windows SDK 10.0.26100.0 |
+| Compile-only product executable Artifact | [Download `guidebar-mvp-133b6346e0bd7331ff919a96ea88680b39b3dc05`](https://github.com/Chasoso/tutorial-dock/actions/runs/43804408522/artifacts/14197464461) (14-day retention) |
 | Product executable launch / AppBar / work-area changes | `MANUAL_PENDING` (not run by Codex) |
 | T008 Windows acceptance | `MANUAL_PENDING` |
 | Independent review | Pending latest candidate HEAD |
