@@ -151,11 +151,11 @@ function Invoke-Variant {
     Set-Check $buildKey 'PASS' 'MSVC x64 /MT static build succeeded'
 
     $compatLog = Join-Path $logDir "$compatKey.log"
-    $compatArgs = @('--test-dir', $buildDir, '-C', 'Release', '--output-on-failure', '-R', '^compatibility$')
+    $compatArgs = @('--test-dir', $buildDir, '-C', 'Release', '--output-on-failure', '--verbose', '-R', '^compatibility$')
     $null = Invoke-LoggedCommand -Name $compatKey -File 'ctest' -Arguments $compatArgs -LogPath $compatLog
 
     $resourceLog = Join-Path $logDir "$resourceKey.log"
-    $resourceArgs = @('--test-dir', $buildDir, '-C', 'Release', '--output-on-failure', '-R', '^resource-bounds$')
+    $resourceArgs = @('--test-dir', $buildDir, '-C', 'Release', '--output-on-failure', '--verbose', '-R', '^resource-bounds$')
     $null = Invoke-LoggedCommand -Name $resourceKey -File 'ctest' -Arguments $resourceArgs -LogPath $resourceLog
 }
 
