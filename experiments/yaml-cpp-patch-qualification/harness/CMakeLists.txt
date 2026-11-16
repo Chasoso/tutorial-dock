@@ -15,7 +15,7 @@ if(NOT DEFINED YAML_CPP_SOURCE_DIR OR NOT EXISTS "${YAML_CPP_SOURCE_DIR}/CMakeLi
     message(FATAL_ERROR "YAML_CPP_SOURCE_DIR must point to the checked-out yaml-cpp source.")
 endif()
 
-option(QUALIFY_PATCHED "Expect the quoted-scalar newline patch to be applied" OFF)
+option(QUALIFY_PATCHED "Expect the approved quoted and folded scalar patches to be applied" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +31,7 @@ set(YAML_MSVC_SHARED_RT OFF CACHE BOOL "Use /MT for yaml-cpp" FORCE)
 add_subdirectory("${YAML_CPP_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/yaml-cpp")
 
 configure_file(fixtures/folded-keep-input.hex folded-keep-input.hex COPYONLY)
+configure_file(fixtures/block-scalar-cases.tsv block-scalar-cases.tsv COPYONLY)
 
 add_executable(yaml_cpp_compatibility_tests compatibility_tests.cpp)
 add_executable(yaml_cpp_resource_bounds_tests resource_bounds_tests.cpp resource_bounds_main.cpp)

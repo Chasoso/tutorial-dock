@@ -2,3 +2,4 @@
 /.specify/** text eol=lf
 experiments/yaml-cpp-patch-qualification/patches/*.patch text eol=lf
 experiments/yaml-cpp-patch-qualification/harness/fixtures/*.hex text eol=lf
+experiments/yaml-cpp-patch-qualification/harness/fixtures/*.tsv text eol=lf
