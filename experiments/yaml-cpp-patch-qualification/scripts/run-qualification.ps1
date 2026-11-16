@@ -11,7 +11,7 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
 
 $BaseSha = '56e3bb550c91fd7005566f19c079cb7a503223cf'
 $ExpectedQuotedPatchSha256 = 'CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141'
-$ExpectedFoldedPatchSha256 = '7545E3DD62CE472D62BB0F2882CB3EBB2E0D1210C5317EC36BB2A16D02A10EA7'
+$ExpectedFoldedPatchSha256 = 'CE9DF718C987E314ED92ECB79033DCFAF7373F6F0765A24A72755D46F087E577'
 $QuotedPatchFile = Join-Path $PSScriptRoot '..\patches\preserve-quoted-scalar-trailing-newlines.patch'
 $FoldedPatchFile = Join-Path $PSScriptRoot '..\patches\preserve-folded-keep-trailing-newlines.patch'
 $Harness = Join-Path $PSScriptRoot '..\harness'
