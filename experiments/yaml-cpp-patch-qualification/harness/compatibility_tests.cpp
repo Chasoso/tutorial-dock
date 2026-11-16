@@ -113,6 +113,9 @@ bool RunCompatibilityTests() {
         std::cerr << "FAIL expected " << expectedBaselineMismatches
                   << " known baseline mismatches, observed " << knownBaselineMismatches << '\n';
         failed = true;
+    } else if (failed) {
+        std::cout << "EXPECTED_BASELINE_MISMATCHES=" << knownBaselineMismatches
+                  << "; additional compatibility failure(s) detected; see FAIL lines\n";
     } else {
         std::cout << "PASS baseline reproduced " << knownBaselineMismatches
                   << " known trailing-newline mismatch(es); all other compatibility cases passed\n";

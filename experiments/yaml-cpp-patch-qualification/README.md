@@ -19,7 +19,7 @@ The earlier note that the pinned 0.9.0 commit was affected was incorrect and is 
 
 The corrected [Debian tracker](https://security-tracker.debian.org/tracker/CVE-2026-75432) marks yaml-cpp as not affected because the vulnerable code was introduced later. Debian's [correction report](https://www.mail-archive.com/debian-bugs-dist%40lists.debian.org/msg2124628.html) states that its public input is rejected with `ParserException` on the archive's 0.9.0 build, while it triggers UB on an upstream snapshot after the introducing change and before the fix. This assessment is limited to CVE-2026-75432 and does not establish that yaml-cpp 0.9.0 has no other security issues.
 
-An isolated sanitizer workflow now compares the exact pinned 0.9.0 commit, upstream `3eb39d5808c33aa93a113cb6c668fa2435ff3ecd` (after introduction, before the fix), and fix commit `8b2e6ba3288de15ed7a61d5c89cde2ed47327c1e` using the public 96-byte input from upstream [Issue #1475](https://github.com/jbeder/yaml-cpp/issues/1475). Expected outcomes are respectively safe `YAML::ParserException`, sanitizer-detected UB, and safe `YAML::ParserException`. The vulnerable revision's expected crash is a successful reproduction of the historical bug, not a security pass. Runtime statuses remain **NOT_RUN** until the workflow completes.
+An isolated sanitizer workflow compares the exact pinned 0.9.0 commit, upstream `3eb39d5808c33aa93a113cb6c668fa2435ff3ecd` (after introduction, before the fix), and fix commit `8b2e6ba3288de15ed7a61d5c89cde2ed47327c1e` using the public 96-byte input from upstream [Issue #1475](https://github.com/jbeder/yaml-cpp/issues/1475). Expected outcomes are respectively safe `YAML::ParserException`, sanitizer-detected UB, and safe `YAML::ParserException`. The vulnerable revision's expected crash is a successful reproduction of the historical bug, not a security pass. Runtime outcomes for the recorded run are listed in the Verification status section; later commits must be evaluated using their exact-head Actions run.
 
 No part of upstream PR #1476 is added to the approved dependency patch. The newline-retention patch remains the only proposed source patch and is independently hash-checked.
 
@@ -69,7 +69,7 @@ The script refuses to overwrite an existing build directory. It requires CMake, 
 
 ## Verification status
 
-Tested qualification HEAD: `dea5fc58fed62b5eb26ae92f04a7d4cc0e8cbf02` — [GitHub Actions run 43925280319](https://github.com/Chasoso/tutorial-dock/actions/runs/43925280319).
+Recorded qualification run: HEAD `d4bb8d63f052448047b17920f93c487eeb906dca` — [GitHub Actions run 43928059320](https://github.com/Chasoso/tutorial-dock/actions/runs/43928059320). The baseline compatibility finding originated on `dea5fc58fed62b5eb26ae92f04a7d4cc0e8cbf02` and was confirmed at this recorded HEAD.
 
 - CVE-2026-75432 applicability for pinned 0.9.0: **NOT_AFFECTED by source provenance**. The three-revision ASan/UBSan matrix **PASS**ed: pinned 0.9.0 and the fix commit returned the expected parser exception; the post-introduction/pre-fix revision produced the expected sanitizer finding. This is specific to this CVE and does not establish that the parser has no other vulnerabilities.
 - Patch SHA-256 `CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141`, hunk integrity, and application to the pinned source: **PASS** on Windows CI.
