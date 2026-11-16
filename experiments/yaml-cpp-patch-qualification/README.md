@@ -33,6 +33,8 @@ The C++ report prints the fixture's escaped bytes, hex, terminal-LF count, expec
 
 The six known baseline quoted-scalar differences (both quote styles, terminal newline counts 2–4) are classified as expected baseline findings only when the actual bytes match the recorded legacy result. Any additional difference—including `folded-keep`—is an unexpected compatibility failure. The approved one-line patch affects `ScanQuotedScalar()`; the block-scalar path is selected separately by `ScanBlockScalar()`. No additional parser patch is applied during this qualification.
 
+The source-level failure is in the pinned `ScanScalar()` `FOLD_BLOCK` path: it accumulates empty-line breaks in `foldedNewlineCount`, then emits `foldedNewlineCount - 1` when the next line is no longer empty, alongside the current line-break handling. For this terminal `>+` case the result is one LF short. The quoted-scalar patch changes `ScanQuotedScalar()` only, so it does not affect this block-scalar path. This identifies the relevant implementation path for the tested input; it does not authorize or include a fix.
+
 ## Resource-bound qualification
 
 [`harness/resource_bounds_tests.cpp`](harness/resource_bounds_tests.cpp) exercises the bounded event-parser path without calling `YAML::Load` or building yaml-cpp's ordinary `Node` graph. Each resource suite is run as its own CTest test, independently for baseline and patched source:
@@ -70,15 +72,17 @@ The script refuses to overwrite an existing build directory. It requires CMake, 
 
 ## Verification status
 
-The latest run's exact HEAD, A/B/C/D status, PyYAML reference status, per-check artifact links, and actual byte values are recorded here after Actions completes. Until that result is recorded, all new runtime checks remain **NOT_RUN**. The prior run and its limited evidence remain in the PR history; it is not evidence for the updated harness.
+Latest exact tested HEAD: `6e0cce22a0140c5998814cb8314acc12e40cdfcb`; Actions run [#43950582661](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661) completed with overall **FAIL** because both required compatibility checks fail. The Windows job used MSVC 19.44.35230.0, Windows SDK 10.0.26100.0, x64, static yaml-cpp, and `/MT`. Compilation succeeded for both variants; upstream conversion warnings were emitted.
 
-- CVE-2026-75432 applicability for pinned 0.9.0: **NOT_AFFECTED by source provenance**. The previously recorded three-revision ASan/UBSan matrix **PASS**ed at the exact then-tested HEAD; this is specific to this CVE and does not establish that the parser has no other vulnerabilities.
-- Patch SHA-256 `CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141`: **NOT_RUN** for this new workflow revision until its Windows run verifies the hash and hunk.
-- A — baseline compatibility: **NOT_RUN** until the updated Windows workflow executes.
-- B — patched compatibility: **NOT_RUN** until the updated Windows workflow executes.
-- C — baseline resource bounds: **NOT_RUN** until the updated Windows workflow executes.
-- D — patched resource bounds: **NOT_RUN** until the updated Windows workflow executes.
-- Independent PyYAML `folded-keep` comparison: **NOT_RUN** until its reference job executes.
-- T001: **NOT_PASSED / STOPPED** pending the independent results, especially folded-keep and resource-limit safety. Do not resume T002–T008 or integrate yaml-cpp into product code.
+- Patch integrity: **PASS**. The verified SHA-256 is `CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141`, and the applied diff was the approved one-line replacement in `src/scantoken.cpp`.
+- Baseline build: **PASS**. Patched build: **PASS**.
+- A — baseline compatibility: **FAIL**. `folded-keep` measured 12 bytes instead of the 13-byte YAML 1.2.2 value. The six known quoted-scalar trailing-newline differences (single and double quoted, counts 2–4) were reported as expected baseline mismatches; other listed compatibility cases passed.
+- B — patched compatibility: **FAIL**. The approved patch fixed the quoted-scalar trailing-newline cases 0–4, but `folded-keep` remained 12 bytes instead of 13. Other listed compatibility cases passed.
+- C — baseline resource bounds: **PASS**. D — patched resource bounds: **PASS**. Both suites recorded: 1 MiB accepted / +1 byte rejected before parser construction; depth 16 / 17; alias occurrences 128 / 129; steps 500 / 501; buttons per step 64 / 65; buttons per lesson 1,024 / 1,025; physical event nodes 20,000 / reject before 20,001; expanded alias visits 20,000 / reject before 20,001; plus multiple-document, cyclic-alias, malformed-input rejection. The 307-byte adversarial alias graph was stopped at the visit budget; measured walk time was 0 ms at millisecond resolution.
+- Independent PyYAML 6.0.2 folded-keep reference: **PASS**. It parsed the same 27-byte input with three terminal LF bytes as 13 bytes, matching the YAML 1.2.2 expectation.
+- CVE-2026-75432 three-revision ASan/UBSan matrix: **PASS** on this run: pinned 0.9.0 and fixed revision produced the expected safe parser exception; the post-introduction/pre-fix revision reproduced the expected sanitizer finding. This conclusion applies only to this CVE.
+- Artifacts: [summary and logs](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661/artifacts/14267862041), [A baseline compatibility](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661/artifacts/14266357787), [B patched compatibility](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661/artifacts/14266497561), [C baseline resource bounds](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661/artifacts/14267652285), [D patched resource bounds](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661/artifacts/14266247748), [PyYAML reference](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661/artifacts/14267891604), and the [three-revision CVE matrix](https://github.com/Chasoso/tutorial-dock/actions/runs/43950582661).
+- Resource-limit evidence applies to this isolated bounded `EventHandler` qualification harness. It shows the configured callbacks and expanded walk enforcing the tested budgets; it does not prove a future product file reader checks the byte limit before reading, nor does it measure every parser-internal allocation/peak memory under product integration. The 1 MiB input cap bounds parser input; product integration must preserve the pre-read check and bounded event path.
+- T001: **NOT_PASSED / STOPPED** because the folded-block compatibility requirement fails in both variants. C/D passing does not override A/B; do not integrate yaml-cpp or start product implementation based on these qualification tests.
 - T002–T008: **NOT_STARTED**.
 - Product code, product build/executable, and Windows/AppBar runtime operation: **NOT_RUN / out of scope**.
