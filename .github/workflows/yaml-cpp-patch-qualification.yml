@@ -1,0 +1,143 @@
+name: yaml-cpp pinned patch qualification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/yaml-cpp-patch-qualification.yml'
+      - 'experiments/yaml-cpp-patch-qualification/**'
+      - 'specs/lesson-yaml/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-cve-2026-75432:
+    name: CVE PoC (${{ matrix.revision_name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - revision_name: pinned-0.9.0
+            revision: 56e3bb550c91fd7005566f19c079cb7a503223cf
+            expected: safe-parser-error
+          - revision_name: vulnerable-window-before-fix
+            revision: 3eb39d5808c33aa93a113cb6c668fa2435ff3ecd
+            expected: sanitizer-detects-ub
+          - revision_name: fixed-commit
+            revision: 8b2e6ba3288de15ed7a61d5c89cde2ed47327c1e
+            expected: safe-parser-error
+    steps:
+      - name: Check out Tutorial Dock qualification harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out yaml-cpp revision
+        uses: actions/checkout@v4
+        with:
+          repository: jbeder/yaml-cpp
+          ref: ${{ matrix.revision }}
+          path: vendor/yaml-cpp
+          persist-credentials: false
+
+      - name: Build isolated sanitizer harness
+        shell: bash
+        run: |
+          cmake -S experiments/yaml-cpp-patch-qualification/cve-harness \
+            -B "$RUNNER_TEMP/cve-${{ matrix.revision_name }}" \
+            -DYAML_CPP_SOURCE_DIR="$GITHUB_WORKSPACE/vendor/yaml-cpp" \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS='-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer' \
+            -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+          cmake --build "$RUNNER_TEMP/cve-${{ matrix.revision_name }}" --parallel 2
+
+      - name: Run public 96-byte PoC and classify expected result
+        shell: bash
+        env:
+          EXPECTED_RESULT: ${{ matrix.expected }}
+          YAML_CPP_REVISION: ${{ matrix.revision }}
+        run: |
+          report="$RUNNER_TEMP/cve-${{ matrix.revision_name }}.log"
+          ulimit -c 0
+          set +e
+          ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+            UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+            "$RUNNER_TEMP/cve-${{ matrix.revision_name }}/yaml_cpp_cve_poc" >"$report" 2>&1
+          result=$?
+          set -e
+          cat "$report"
+          echo "REVISION=$YAML_CPP_REVISION" | tee -a "$report"
+          echo "EXPECTED=$EXPECTED_RESULT" | tee -a "$report"
+          echo "PROCESS_EXIT=$result" | tee -a "$report"
+          echo "REVISION=$YAML_CPP_REVISION"
+          echo "EXPECTED=$EXPECTED_RESULT"
+          echo "PROCESS_EXIT=$result"
+          if [[ "$EXPECTED_RESULT" == "safe-parser-error" && "$result" -eq 0 ]] \
+            && grep -q 'SAFE_PARSER_EXCEPTION:' "$report"; then
+            echo "CVE_POC_RESULT=PASS_SAFE_PARSER_ERROR" | tee -a "$report"
+          elif [[ "$EXPECTED_RESULT" == "sanitizer-detects-ub" && "$result" -ne 0 ]] \
+            && grep -Eq 'runtime error:|AddressSanitizer|UndefinedBehaviorSanitizer' "$report"; then
+            echo "CVE_POC_RESULT=PASS_VULNERABLE_REVISION_REPRODUCED" | tee -a "$report"
+          else
+            echo "CVE_POC_RESULT=FAIL_EXPECTATION_MISMATCH" | tee -a "$report"
+            exit 1
+          fi
+
+      - name: Upload CVE PoC report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-cve-${{ matrix.revision_name }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/cve-${{ matrix.revision_name }}.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  qualify-windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Check out Tutorial Dock at the tested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out the exact upstream yaml-cpp revision (baseline)
+        uses: actions/checkout@v4
+        with:
+          repository: jbeder/yaml-cpp
+          ref: 56e3bb550c91fd7005566f19c079cb7a503223cf
+          path: vendor/yaml-cpp-baseline
+          persist-credentials: false
+
+      - name: Check out the exact upstream yaml-cpp revision (patch target)
+        uses: actions/checkout@v4
+        with:
+          repository: jbeder/yaml-cpp
+          ref: 56e3bb550c91fd7005566f19c079cb7a503223cf
+          path: vendor/yaml-cpp-patched
+          persist-credentials: false
+
+      - name: Build and compare baseline and patched parser
+        shell: pwsh
+        run: |
+          $buildRoot = Join-Path $env:RUNNER_TEMP "yaml-cpp-qualification-$env:GITHUB_RUN_ID"
+          ./experiments/yaml-cpp-patch-qualification/scripts/run-qualification.ps1 `
+            -BaselineSource "$env:GITHUB_WORKSPACE/vendor/yaml-cpp-baseline" `
+            -PatchedSource "$env:GITHUB_WORKSPACE/vendor/yaml-cpp-patched" `
+            -BuildRoot "$buildRoot"
+
+      - name: Upload baseline and patched test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-qualification-${{ github.run_id }}
+          path: ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/**/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+          retention-days: 14
