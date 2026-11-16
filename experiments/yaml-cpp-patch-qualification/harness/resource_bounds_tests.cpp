@@ -1,4 +1,5 @@
 #include <yaml-cpp/eventhandler.h>
+#include <yaml-cpp/exceptions.h>
 #include <yaml-cpp/parser.h>
 
 #include <algorithm>
