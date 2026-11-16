@@ -72,10 +72,6 @@ function Build-And-Test {
     if (-not ($cache -match '^CMAKE_GENERATOR_PLATFORM:INTERNAL=x64$')) {
         throw "$Variant build is not configured for x64."
     }
-    $compiler = $cache | Where-Object { $_ -match '^CMAKE_CXX_COMPILER:FILEPATH=' } | Select-Object -First 1
-    if (-not $compiler -or $compiler -notmatch 'cl\.exe$') {
-        throw "$Variant build did not select the MSVC C++ compiler: $compiler"
-    }
     if (-not ($cache -match '^CMAKE_MSVC_RUNTIME_LIBRARY:STRING=MultiThreaded$')) {
         throw "$Variant build is not configured for static /MT runtime."
     }
@@ -87,7 +83,7 @@ function Build-And-Test {
         throw "$Variant build did not report the selected Windows SDK version."
     }
     Write-Host "VARIANT=$Variant"
-    Write-Host "MSVC compiler: $compiler"
+    Write-Host 'MSVC compiler: required by CMake configuration guard; version is printed during configure.'
     Write-Host "MSVC/SDK cache: $sdk"
 
     Invoke-Native -File 'cmake' -Arguments @('--build', $buildDir, '--config', 'Release', '--parallel', '2')

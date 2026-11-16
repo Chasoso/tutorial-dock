@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 project(yaml_cpp_patch_qualification LANGUAGES CXX)
 
+if(NOT MSVC)
+    message(FATAL_ERROR "The Windows qualification must use MSVC.")
+endif()
+
+message(STATUS "QUALIFICATION_COMPILER=MSVC ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "QUALIFICATION_WINDOWS_SDK=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
+
 if(NOT DEFINED YAML_CPP_SOURCE_DIR OR NOT EXISTS "${YAML_CPP_SOURCE_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "YAML_CPP_SOURCE_DIR must point to the checked-out yaml-cpp source.")
 endif()
