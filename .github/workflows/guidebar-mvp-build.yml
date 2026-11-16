@@ -48,18 +48,22 @@ jobs:
           call "%VCVARSALL%" amd64
           if errorlevel 1 exit /b 1
           echo Product source SHA: %SOURCE_SHA%
-          if not defined VCToolsInstallDir (
-            echo ERROR: vcvarsall.bat did not set VCToolsInstallDir.
+          for /f "tokens=*" %%i in ('"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find VC\Tools\MSVC\**\bin\Hostx64\x64\cl.exe') do set "CL_EXE=%%i"
+          if not defined CL_EXE (
+            echo ERROR: vswhere could not find the x64 MSVC compiler.
             exit /b 1
           )
-          set "CL_EXE=%VCToolsInstallDir%bin\Hostx64\x64\cl.exe"
+          for %%F in ("%CL_EXE%") do set "VCX64BIN=%%~dpF"
           if not exist "%CL_EXE%" (
             echo ERROR: x64 MSVC compiler was not found at "%CL_EXE%".
             exit /b 1
           )
-          rem Invoke the x64 compiler by its path from the selected VS instance.
-          rem Keep its sibling linker discoverable even if runner PATH propagation is incomplete.
-          set "PATH=%VCToolsInstallDir%bin\Hostx64\x64;%PATH%"
+          if not exist "%VCX64BIN%link.exe" (
+            echo ERROR: x64 linker was not found beside the selected compiler.
+            exit /b 1
+          )
+          rem Use the selected VS instance's compiler and make its sibling linker discoverable.
+          set "PATH=%VCX64BIN%;%PATH%"
           where cl
           if errorlevel 1 exit /b 1
           if not defined WindowsSdkDir (
