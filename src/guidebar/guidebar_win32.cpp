@@ -10,7 +10,11 @@
 #include "reservation_update.h"
 
 #include <algorithm>
+#include <cwchar>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -71,6 +75,12 @@ BOOL g_moveResult = FALSE;
 bool g_baselineCaptured = false;
 bool g_mayBeRegistered = false;
 bool g_removeAttempted = false;
+bool g_releaseConfirmed = false;
+bool g_beforeRemoveWorkAreaAvailable = false;
+bool g_afterRemoveWorkAreaAvailable = false;
+bool g_workAreaRestored = false;
+bool g_windowHiddenConfirmed = false;
+bool g_closeVisibleReleasedApproved = false;
 bool g_destroyAllowed = false;
 bool g_positionUpdatePending = false;
 bool g_shellPositionNotificationInProgress = false;
@@ -79,6 +89,9 @@ bool g_degradedFallbackVisible = false;
 bool g_degradedFallbackPending = false;
 ULONGLONG g_positionBurstStarted = 0;
 unsigned int g_positionUpdatesInBurst = 0;
+RECT g_beforeRemoveWorkArea{};
+RECT g_afterRemoveWorkArea{};
+std::filesystem::path g_releaseEvidencePath;
 
 enum class DeferredFallbackReason : WPARAM {
     PositionBurstLimit = 1,
@@ -109,6 +122,107 @@ std::wstring RectText(const RECT& rect) {
     return L"(" + std::to_wstring(rect.left) + L"," + std::to_wstring(rect.top) +
            L")- (" + std::to_wstring(rect.right) + L"," +
            std::to_wstring(rect.bottom) + L")";
+}
+
+void WriteEvidenceRect(std::ofstream& output, const char* key,
+                       bool available, const RECT& rect) {
+    output << key << '=';
+    if (!available) {
+        output << "NOT_AVAILABLE\n";
+        return;
+    }
+    output << rect.left << ',' << rect.top << ','
+           << rect.right << ',' << rect.bottom << '\n';
+}
+
+bool SaveReleaseEvidence(const char* exitDisposition) {
+    try {
+        if (g_releaseEvidencePath.empty()) {
+            std::vector<wchar_t> executablePath(32768, L'\0');
+            const DWORD pathLength = GetModuleFileNameW(
+                nullptr, executablePath.data(),
+                static_cast<DWORD>(executablePath.size()));
+            if (pathLength == 0 ||
+                static_cast<std::size_t>(pathLength) >= executablePath.size()) {
+                return false;
+            }
+
+            SYSTEMTIME now{};
+            GetLocalTime(&now);
+            wchar_t fileName[96]{};
+            const int nameLength = swprintf_s(
+                fileName, sizeof(fileName) / sizeof(fileName[0]),
+                L"guidebar-release-%04d%02d%02d-%02d%02d%02d-%03d-%lu.txt",
+                static_cast<int>(now.wYear), static_cast<int>(now.wMonth),
+                static_cast<int>(now.wDay), static_cast<int>(now.wHour),
+                static_cast<int>(now.wMinute), static_cast<int>(now.wSecond),
+                static_cast<int>(now.wMilliseconds), GetCurrentProcessId());
+            if (nameLength <= 0) {
+                return false;
+            }
+
+            const std::filesystem::path executable(
+                std::wstring(executablePath.data(), pathLength));
+            g_releaseEvidencePath = executable.parent_path() / fileName;
+        }
+
+        std::ofstream output(g_releaseEvidencePath,
+                             std::ios::binary | std::ios::out | std::ios::trunc);
+        if (!output) {
+            return false;
+        }
+
+        output << "format=Tutorial Dock guide-bar release evidence v1\n";
+        output << "abm_remove_attempted=" << (g_removeAttempted ? "true" : "false") << '\n';
+        output << "abm_remove_return="
+               << static_cast<unsigned long long>(g_removeResult) << '\n';
+        WriteEvidenceRect(output, "baseline_work_area", g_baselineCaptured,
+                          g_baselineWork);
+        WriteEvidenceRect(output, "work_area_before_remove",
+                          g_beforeRemoveWorkAreaAvailable,
+                          g_beforeRemoveWorkArea);
+        WriteEvidenceRect(output, "work_area_after_remove",
+                          g_afterRemoveWorkAreaAvailable,
+                          g_afterRemoveWorkArea);
+        output << "work_area_restored=" << (g_workAreaRestored ? "true" : "false") << '\n';
+        output << "release_state=" << (g_releaseConfirmed ? "verified" : "unverified") << '\n';
+        output << "window_hidden_confirmed="
+               << (g_windowHiddenConfirmed ? "true" : "false") << '\n';
+        output << "exit_disposition=" << exitDisposition << '\n';
+        output << "process_exit_code=not_observable_before_process_exit\n";
+        output.flush();
+        if (!output.good()) {
+            return false;
+        }
+        output.close();
+        return !output.fail();
+    } catch (...) {
+        return false;
+    }
+}
+
+std::wstring ReleaseEvidenceSummary(bool evidenceSaved) {
+    std::wstring summary = L"ABM_REMOVE return: ";
+    summary += std::to_wstring(g_removeResult);
+    summary += L"\nWork area before removal: ";
+    summary += g_beforeRemoveWorkAreaAvailable
+        ? RectText(g_beforeRemoveWorkArea) : L"unavailable";
+    summary += L"\nWork area after removal: ";
+    summary += g_afterRemoveWorkAreaAvailable
+        ? RectText(g_afterRemoveWorkArea) : L"unavailable";
+    summary += L"\nWork area restored to baseline: ";
+    summary += g_workAreaRestored ? L"yes" : L"no / unconfirmed";
+    summary += L"\nRelease state: ";
+    summary += g_releaseConfirmed ? L"verified" : L"unverified";
+    summary += L"\nAppBar window hidden: ";
+    summary += g_windowHiddenConfirmed ? L"confirmed" : L"not confirmed";
+    summary += L"\nEvidence saved: ";
+    summary += evidenceSaved ? L"yes" : L"no";
+    summary += L"\nEvidence file: ";
+    summary += g_releaseEvidencePath.empty()
+        ? L"unavailable" : g_releaseEvidencePath.wstring();
+    summary += L"\nThe process exit code must be recorded externally after this window closes.";
+    return summary;
 }
 
 void SetStatus(const std::wstring& text) {
@@ -393,6 +507,7 @@ const wchar_t* DeferredFallbackReasonText(WPARAM reason) {
 }
 
 bool RemoveAndVerify();
+bool IsSafeToExit();
 
 void RegisterAtStartup() {
     if (!CaptureBaseline()) {
@@ -416,8 +531,11 @@ void RegisterAtStartup() {
     if (!ApplyAndVerifyHeight(kNormalHeight)) {
         g_lifecycle = Lifecycle::ReservationUnverified;
         SetStatus(L"Initial reservation or geometry could not be confirmed. Attempting one guarded removal.");
-        if (RemoveAndVerify()) {
+        if (RemoveAndVerify() && g_windowHiddenConfirmed) {
             ShowFallback(L"The initial AppBar setup was not confirmed and has been released.");
+        } else if (g_releaseConfirmed) {
+            SetStatus(L"The initial AppBar was removed and the work area was restored, but hiding the window was not confirmed. Keep this window open and request human help.");
+            ShowWindow(g_window, SW_SHOWNOACTIVATE);
         } else {
             SetStatus(L"AppBar state is uncertain. Keep this window open; do not force-close or start another run.");
             ShowWindow(g_window, SW_SHOWNOACTIVATE);
@@ -443,31 +561,47 @@ bool RemoveAndVerify() {
     g_removeAttempted = true;
     g_lifecycle = Lifecycle::Removing;
 
+    MONITORINFO before{sizeof(MONITORINFO)};
+    g_beforeRemoveWorkAreaAvailable = ReadMonitorInfo(before);
+    if (g_beforeRemoveWorkAreaAvailable) {
+        g_beforeRemoveWorkArea = before.rcWork;
+    }
+
     APPBARDATA data = MakeAppBarData();
     g_removeResult = SHAppBarMessage(ABM_REMOVE, &data);
-    g_lifecycle = Lifecycle::RemovalUnverified;
 
     MONITORINFO after{sizeof(MONITORINFO)};
-    const bool workAreaRestored = g_baselineCaptured && ReadMonitorInfo(after) &&
-                                  RectEqual(after.rcWork, g_baselineWork);
-    if (!g_removeResult || !workAreaRestored) {
+    g_afterRemoveWorkAreaAvailable = ReadMonitorInfo(after);
+    if (g_afterRemoveWorkAreaAvailable) {
+        g_afterRemoveWorkArea = after.rcWork;
+    }
+    g_workAreaRestored = g_baselineCaptured && g_afterRemoveWorkAreaAvailable &&
+                         RectEqual(g_afterRemoveWorkArea, g_baselineWork);
+
+    const auto transition = tutorial_dock::TransitionAfterRemovalVerification(
+        g_removeResult != 0, g_workAreaRestored, false);
+    g_lifecycle = transition.lifecycle;
+    g_releaseConfirmed = transition.releaseConfirmed;
+    if (!g_releaseConfirmed) {
         SetStatus(L"AppBar removal is unverified. Keep this window open and request human help.");
         RefreshView();
         return false;
     }
 
-    // Do not destroy the registered HWND until both shell removal and work-area
-    // restoration have been observed.
+    // Keep the confirmed Shell-release result even if hiding the already-
+    // unregistered window cannot be verified.
     g_mayBeRegistered = false;
     ShowWindow(g_window, SW_HIDE);
-    if (IsWindowVisible(g_window)) {
-        g_lifecycle = Lifecycle::RemovalUnverified;
-        SetStatus(L"The work area was restored, but hiding the AppBar window was not confirmed. Keep it open.");
+    g_windowHiddenConfirmed = !IsWindowVisible(g_window);
+    const auto finalTransition = tutorial_dock::TransitionAfterRemovalVerification(
+        true, true, g_windowHiddenConfirmed);
+    g_lifecycle = finalTransition.lifecycle;
+    if (!g_windowHiddenConfirmed) {
+        SetStatus(L"AppBar removal and work-area restoration are confirmed, but hiding the unregistered window is not. Safe Exit will ask before closing it.");
         RefreshView();
-        return false;
+        return true;
     }
 
-    g_lifecycle = Lifecycle::Released;
     SetStatus(L"AppBar removed and the original work area restored.");
     return true;
 }
@@ -478,19 +612,74 @@ void RequestSafeExit() {
                 g_mayBeRegistered, g_removeAttempted)) {
             RemoveAndVerify();
         }
-        if (g_lifecycle != Lifecycle::Released) {
+        if (!g_releaseConfirmed || g_lifecycle != Lifecycle::Released) {
             SetStatus(L"Safe Exit is blocked because AppBar release is unverified. Keep this window open and request human help.");
+            const bool evidenceSaved = SaveReleaseEvidence(
+                "release-unverified-normal-exit-blocked");
+            MessageBoxW(nullptr, ReleaseEvidenceSummary(evidenceSaved).c_str(),
+                        L"Tutorial Dock release not verified",
+                        MB_OK | MB_ICONWARNING);
             RefreshView();
             return;
         }
     }
 
+    if (g_removeAttempted && g_releaseConfirmed && !g_windowHiddenConfirmed) {
+        const bool evidenceSaved = SaveReleaseEvidence(
+            "release-verified-window-hide-unconfirmed-human-decision-required");
+        std::wstring prompt = L"The AppBar removal and work-area restoration are verified, but the window is still visible. No additional ABM_REMOVE call will be made.\n\n";
+        prompt += ReleaseEvidenceSummary(evidenceSaved);
+        prompt += L"\n\nChoose Yes only if you want to close this confirmed-unregistered window. Choose No to leave it open for human review.";
+        const int decision = MessageBoxW(nullptr, prompt.c_str(),
+            L"Tutorial Dock needs a close decision", MB_YESNO | MB_ICONWARNING);
+        if (decision != IDYES) {
+            const bool decisionSaved = SaveReleaseEvidence(
+                "release-verified-window-hide-unconfirmed-close-declined");
+            SetStatus(decisionSaved
+                ? L"AppBar removal is verified. The window remains open by your choice; no further ABM_REMOVE call will be made."
+                : L"AppBar removal is verified and the window remains open by your choice, but the updated decision could not be saved. No further ABM_REMOVE call will be made.");
+            RefreshView();
+            return;
+        }
+        g_closeVisibleReleasedApproved = true;
+    }
+
     if (g_lifecycle == Lifecycle::Unregistered ||
         g_lifecycle == Lifecycle::Fallback ||
         g_lifecycle == Lifecycle::Released) {
+        if (g_removeAttempted && g_releaseConfirmed) {
+            const char* disposition = g_closeVisibleReleasedApproved
+                ? "normal-exit-requested-after-human-approved-visible-window-close"
+                : "normal-exit-requested-after-release-verification";
+            const bool evidenceSaved = SaveReleaseEvidence(disposition);
+            if (!evidenceSaved) {
+                std::wstring prompt = L"The AppBar release is confirmed, but its evidence file could not be saved. The measurements are shown below.\n\n";
+                prompt += ReleaseEvidenceSummary(false);
+                prompt += L"\n\nChoose Yes to close, or No to keep the guide bar available for manual recording.";
+                const int decision = MessageBoxW(nullptr, prompt.c_str(),
+                    L"Release evidence was not saved", MB_YESNO | MB_ICONWARNING);
+                if (decision != IDYES) {
+                    ShowWindow(g_window, SW_SHOWNOACTIVATE);
+                    g_windowHiddenConfirmed = false;
+                    g_closeVisibleReleasedApproved = false;
+                    SetStatus(L"Release is confirmed, but evidence was not saved. The unregistered window remains open for manual recording.");
+                    RefreshView();
+                    return;
+                }
+            } else if (g_windowHiddenConfirmed) {
+                MessageBoxW(nullptr, ReleaseEvidenceSummary(true).c_str(),
+                    L"Tutorial Dock release verified", MB_OK | MB_ICONINFORMATION);
+            }
+        }
         g_destroyAllowed = true;
         if (g_window && IsWindow(g_window)) {
-            DestroyWindow(g_window);
+            if (!DestroyWindow(g_window)) {
+                g_destroyAllowed = false;
+                SetStatus(L"Release was verified, but the window could not be destroyed. Keep the process open and request human help.");
+                MessageBoxW(nullptr, g_status.c_str(), L"Tutorial Dock could not close",
+                            MB_OK | MB_ICONERROR);
+                RefreshView();
+            }
         }
         return;
     }
@@ -609,6 +798,22 @@ void ShowReservationStatus() {
     details += L"\nBaseline work area: ";
     details += g_baselineCaptured ? RectText(g_baselineWork) : L"unavailable";
     details += L"\nABM_REMOVE: "; details += std::to_wstring(g_removeResult);
+    details += L"\nWork area before ABM_REMOVE: ";
+    details += g_beforeRemoveWorkAreaAvailable
+        ? RectText(g_beforeRemoveWorkArea) : L"unavailable";
+    details += L"\nWork area after ABM_REMOVE: ";
+    details += g_afterRemoveWorkAreaAvailable
+        ? RectText(g_afterRemoveWorkArea) : L"unavailable";
+    details += L"\nWork area restored: ";
+    details += g_workAreaRestored ? L"yes" : L"no / unconfirmed";
+    details += L"\nAppBar release confirmed: ";
+    details += g_releaseConfirmed ? L"yes" : L"no / unconfirmed";
+    details += L"\nAppBar window hidden: ";
+    details += g_windowHiddenConfirmed ? L"yes" : L"no / unconfirmed";
+    if (!g_releaseEvidencePath.empty()) {
+        details += L"\nRelease evidence file: ";
+        details += g_releaseEvidencePath.wstring();
+    }
     details += L"\nStatus: "; details += g_status;
 
     MessageBoxW(g_window, details.c_str(), L"Tutorial Dock reservation status",
@@ -806,7 +1011,13 @@ bool RegisterWindowClass() {
 }
 
 bool IsSafeToExit() {
-    return tutorial_dock::CanDestroyGuideBarWindow(g_mayBeRegistered, g_lifecycle);
+    if (!tutorial_dock::CanDestroyGuideBarWindow(g_mayBeRegistered, g_lifecycle)) {
+        return false;
+    }
+    return !g_removeAttempted ||
+           tutorial_dock::CanCompleteSafeExitAfterRemoval(
+               g_releaseConfirmed, g_windowHiddenConfirmed,
+               g_closeVisibleReleasedApproved);
 }
 
 int RunMessageLoop() {

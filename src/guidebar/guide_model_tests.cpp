@@ -137,6 +137,53 @@ void TestReservationLifecycleTransitionsAndExitGuard() {
           "confirmed release allows guarded window destruction");
 }
 
+void TestRemovalVerificationAndVisibleWindowDecision() {
+    const auto removedAndHidden = tutorial_dock::TransitionAfterRemovalVerification(
+        true, true, true);
+    Check(removedAndHidden.lifecycle == tutorial_dock::GuideBarLifecycle::Released,
+          "confirmed removal and restoration reach released state");
+    Check(removedAndHidden.releaseConfirmed && removedAndHidden.windowHidden,
+          "successful removal retains independent release and hide evidence");
+    Check(!removedAndHidden.requiresHumanDecision,
+          "hidden released window needs no extra close decision");
+    Check(tutorial_dock::CanCompleteSafeExitAfterRemoval(
+              removedAndHidden.releaseConfirmed, removedAndHidden.windowHidden, false),
+          "verified release and hide permit normal exit");
+
+    const auto removedButVisible = tutorial_dock::TransitionAfterRemovalVerification(
+        true, true, false);
+    Check(removedButVisible.lifecycle == tutorial_dock::GuideBarLifecycle::Released,
+          "hide failure does not erase confirmed Shell removal");
+    Check(removedButVisible.releaseConfirmed && !removedButVisible.windowHidden,
+          "hide failure remains separate from reservation release");
+    Check(removedButVisible.requiresHumanDecision,
+          "visible unregistered window requires an explicit human decision");
+    Check(!tutorial_dock::CanCompleteSafeExitAfterRemoval(
+              removedButVisible.releaseConfirmed, removedButVisible.windowHidden, false),
+          "visible released window stays open until human approval");
+    Check(tutorial_dock::CanCompleteSafeExitAfterRemoval(
+              removedButVisible.releaseConfirmed, removedButVisible.windowHidden, true),
+          "human may explicitly approve closing the confirmed-released window");
+
+    const auto removeRejected = tutorial_dock::TransitionAfterRemovalVerification(
+        false, true, true);
+    Check(removeRejected.lifecycle == tutorial_dock::GuideBarLifecycle::RemovalUnverified,
+          "rejected ABM_REMOVE remains unverified");
+    Check(!removeRejected.releaseConfirmed,
+          "window hide cannot substitute for an unconfirmed Shell removal");
+    Check(!tutorial_dock::CanCompleteSafeExitAfterRemoval(
+              removeRejected.releaseConfirmed, removeRejected.windowHidden, true),
+          "human approval to close cannot bypass unverified removal");
+
+    const auto workAreaNotRestored = tutorial_dock::TransitionAfterRemovalVerification(
+        true, false, true);
+    Check(workAreaNotRestored.lifecycle ==
+              tutorial_dock::GuideBarLifecycle::RemovalUnverified,
+          "unrestored work area remains unverified even when ABM_REMOVE was accepted");
+    Check(!workAreaNotRestored.releaseConfirmed,
+          "ABM_REMOVE return alone does not confirm release");
+}
+
 void TestHeightChangesDoNotMutateLessonPosition() {
     tutorial_dock::GuideModel model;
     model.LoadSampleLesson();
@@ -174,6 +221,7 @@ int main() {
     TestEmptyAndSampleNavigation();
     TestReservationUpdateRollback();
     TestReservationLifecycleTransitionsAndExitGuard();
+    TestRemovalVerificationAndVisibleWindowDecision();
     TestHeightChangesDoNotMutateLessonPosition();
     if (g_failures != 0) {
         std::cerr << g_failures << " test(s) failed.\n";

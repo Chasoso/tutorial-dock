@@ -22,6 +22,13 @@ struct ReservationUpdateTransition {
     bool showDegradedFallback;
 };
 
+struct RemovalVerificationTransition {
+    GuideBarLifecycle lifecycle;
+    bool releaseConfirmed;
+    bool windowHidden;
+    bool requiresHumanDecision;
+};
+
 constexpr ReservationUpdateTransition TransitionAfterReservationUpdate(
     ReservationUpdateResult result) noexcept {
     switch (result) {
@@ -32,6 +39,20 @@ constexpr ReservationUpdateTransition TransitionAfterReservationUpdate(
         return {GuideBarLifecycle::ReservationUnverified, false, true};
     }
     return {GuideBarLifecycle::ReservationUnverified, false, true};
+}
+
+constexpr RemovalVerificationTransition TransitionAfterRemovalVerification(
+    bool removeApiAccepted, bool workAreaRestored, bool windowHidden) noexcept {
+    if (!removeApiAccepted || !workAreaRestored) {
+        return {GuideBarLifecycle::RemovalUnverified, false, false, true};
+    }
+    return {GuideBarLifecycle::Released, true, windowHidden, !windowHidden};
+}
+
+constexpr bool CanCompleteSafeExitAfterRemoval(
+    bool releaseConfirmed, bool windowHidden,
+    bool humanApprovedVisibleWindowClose) noexcept {
+    return releaseConfirmed && (windowHidden || humanApprovedVisibleWindowClose);
 }
 
 constexpr bool CanUseGuideLessonControls(GuideBarLifecycle lifecycle) noexcept {
