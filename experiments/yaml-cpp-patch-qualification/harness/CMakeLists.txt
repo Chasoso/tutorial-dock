@@ -30,18 +30,27 @@ set(YAML_MSVC_SHARED_RT OFF CACHE BOOL "Use /MT for yaml-cpp" FORCE)
 
 add_subdirectory("${YAML_CPP_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/yaml-cpp")
 
-add_executable(yaml_cpp_qualification_tests
-    compatibility_tests.cpp
-    resource_bounds_tests.cpp)
-target_link_libraries(yaml_cpp_qualification_tests PRIVATE yaml-cpp::yaml-cpp)
-target_compile_features(yaml_cpp_qualification_tests PRIVATE cxx_std_17)
-if(MSVC)
-    target_compile_options(yaml_cpp_qualification_tests PRIVATE /utf-8 /W4)
-    target_compile_definitions(yaml_cpp_qualification_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
-endif()
+configure_file(fixtures/folded-keep-input.hex folded-keep-input.hex COPYONLY)
+
+add_executable(yaml_cpp_compatibility_tests compatibility_tests.cpp)
+add_executable(yaml_cpp_resource_bounds_tests resource_bounds_tests.cpp resource_bounds_main.cpp)
+
+foreach(target yaml_cpp_compatibility_tests yaml_cpp_resource_bounds_tests)
+    target_link_libraries(${target} PRIVATE yaml-cpp::yaml-cpp)
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /utf-8 /W4)
+        target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endforeach()
+
 if(QUALIFY_PATCHED)
-    target_compile_definitions(yaml_cpp_qualification_tests PRIVATE QUALIFY_PATCHED=1)
+    target_compile_definitions(yaml_cpp_compatibility_tests PRIVATE QUALIFY_PATCHED=1)
 endif()
 
 enable_testing()
-add_test(NAME yaml_cpp_qualification_tests COMMAND yaml_cpp_qualification_tests)
+add_test(NAME compatibility COMMAND yaml_cpp_compatibility_tests)
+add_test(NAME resource-bounds COMMAND yaml_cpp_resource_bounds_tests)
+set_tests_properties(compatibility resource-bounds PROPERTIES
+    TIMEOUT 60
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")

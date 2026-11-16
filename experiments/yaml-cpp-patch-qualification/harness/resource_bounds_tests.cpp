@@ -2,6 +2,7 @@
 #include <yaml-cpp/parser.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <iostream>
 #include <memory>
@@ -266,6 +267,19 @@ void ExpectBudgetError(Builder&& builder, const char* expected) {
     throw std::runtime_error(std::string("expected budget error: ") + expected);
 }
 
+void ExpectParserError(const std::string& input) {
+    try {
+        (void)ScanBounded(input);
+    } catch (const YAML::Exception&) {
+        return;
+    }
+    throw std::runtime_error("malformed YAML was not rejected by the parser");
+}
+
+void ReportBoundary(const char* label) {
+    std::cout << "PASS resource boundary: " << label << '\n';
+}
+
 std::string NestedSequences(std::size_t count) {
     std::string yaml = "root: ";
     yaml.append(count, '[');
@@ -293,14 +307,21 @@ std::string ScalarSequence(std::size_t count) {
     return yaml;
 }
 
-std::string AliasExpansionBomb() {
+std::string AliasExpansionGraph(std::size_t levels, std::size_t paddingPairs,
+                               bool oddPadding) {
     std::string yaml = "a0: &a0 [x]\n";
-    for (int level = 1; level <= 14; ++level) {
+    for (std::size_t level = 1; level <= levels; ++level) {
         const std::string prior = std::to_string(level - 1);
         const std::string current = std::to_string(level);
         yaml += "a" + current + ": &a" + current + " [*a" + prior + ", *a" + prior + "]\n";
     }
-    yaml += "root: *a14\n";
+    yaml += "root: *a" + std::to_string(levels) + "\n";
+    for (std::size_t i = 0; i < paddingPairs; ++i) {
+        yaml += "pad" + std::to_string(i) + ": x\n";
+    }
+    if (oddPadding) {
+        yaml += "odd-padding: [x]\n";
+    }
     return yaml;
 }
 
@@ -317,40 +338,88 @@ std::string LessonWithCounts(std::size_t steps, std::size_t buttonsPerStep) {
     return yaml;
 }
 
+std::string LessonWithButtonCounts(const std::vector<std::size_t>& buttonCounts) {
+    std::string yaml = "title: Test\nsteps:\n";
+    for (std::size_t step = 0; step < buttonCounts.size(); ++step) {
+        yaml += "  - buttons: [";
+        for (std::size_t button = 0; button < buttonCounts[step]; ++button) {
+            if (button != 0) yaml += ", ";
+            yaml += "x";
+        }
+        yaml += "]\n";
+    }
+    return yaml;
+}
+
 void RunResourceBudgetTests() {
     std::string exactFile = "root: value\n#";
     exactFile.append(kMaxFileBytes - exactFile.size(), 'x');
     (void)ScanBounded(exactFile);
     ExpectBudgetError([&] { return exactFile + "x"; }, "file-byte-limit");
+    ReportBoundary("file-size 1 MiB accepted; 1 MiB + 1 byte rejected before parser construction");
 
     (void)ScanBounded(NestedSequences(kMaxCollectionDepth - 1));
     ExpectBudgetError([&] { return NestedSequences(kMaxCollectionDepth); }, "collection-depth-limit");
+    ReportBoundary("collection depth 16 accepted; 17 rejected at collection-start callback");
 
     const ScanStats aliasesAtLimit = ScanBounded(AliasList(kMaxAliasReferences));
     Require(aliasesAtLimit.aliases == kMaxAliasReferences, "alias boundary was not counted exactly");
     ExpectBudgetError([&] { return AliasList(kMaxAliasReferences + 1); }, "alias-reference-limit");
+    ReportBoundary("alias references 128 accepted; 129 rejected in OnAlias");
 
     const ScanStats stepsAtLimit = ScanBounded(LessonWithCounts(kMaxSteps, 0));
     Require(stepsAtLimit.steps == kMaxSteps, "step boundary was not counted exactly");
     ExpectBudgetError([&] { return LessonWithCounts(kMaxSteps + 1, 0); }, "step-count-limit");
+    ReportBoundary("steps 500 accepted; 501 rejected during bounded schema-count walk");
 
     const ScanStats buttonsAtLimit = ScanBounded(LessonWithCounts(1, kMaxButtonsPerStep));
     Require(buttonsAtLimit.buttons == kMaxButtonsPerStep, "per-step button boundary was not counted exactly");
     ExpectBudgetError([&] { return LessonWithCounts(1, kMaxButtonsPerStep + 1); }, "buttons-per-step-limit");
+    ReportBoundary("buttons per step 64 accepted; 65 rejected during bounded schema-count walk");
     const ScanStats lessonButtonsAtLimit = ScanBounded(LessonWithCounts(16, kMaxButtonsPerStep));
     Require(lessonButtonsAtLimit.buttons == kMaxButtonsPerLesson, "per-lesson button boundary was not counted exactly");
-    ExpectBudgetError([&] { return LessonWithCounts(17, kMaxButtonsPerStep); }, "buttons-per-lesson-limit");
+    std::vector<std::size_t> oneOverLessonButtons(16, kMaxButtonsPerStep);
+    oneOverLessonButtons.push_back(1);
+    ExpectBudgetError([&] { return LessonWithButtonCounts(oneOverLessonButtons); }, "buttons-per-lesson-limit");
+    ReportBoundary("buttons per lesson 1,024 accepted; 1,025 rejected during bounded schema-count walk");
 
     const ScanStats nodesAtLimit = ScanBounded(ScalarSequence(kMaxVisitedNodes - 3));
     Require(nodesAtLimit.eventNodes == kMaxVisitedNodes, "event-node boundary was not counted exactly");
     Require(nodesAtLimit.expandedVisits == kMaxVisitedNodes, "expanded-node boundary was not counted exactly");
     ExpectBudgetError([&] { return ScalarSequence(kMaxVisitedNodes - 2); }, "event-node-limit");
+    ReportBoundary("physical event nodes 20,000 accepted; event 20,001 rejected before storage");
+
+    const ScanStats aliasGraphBase = ScanBounded(AliasExpansionGraph(10, 0, false));
+    Require(aliasGraphBase.expandedVisits < kMaxVisitedNodes,
+            "alias expansion boundary fixture base already exceeds the visit budget");
+    const std::size_t remaining = kMaxVisitedNodes - aliasGraphBase.expandedVisits;
+    const bool oddPadding = (remaining % 2) != 0;
+    const std::size_t paddingPairs = (remaining - (oddPadding ? 3 : 0)) / 2;
+    const ScanStats expandedAtLimit = ScanBounded(AliasExpansionGraph(10, paddingPairs, oddPadding));
+    Require(expandedAtLimit.expandedVisits == kMaxVisitedNodes,
+            "expanded alias visit boundary was not counted exactly");
+    ExpectBudgetError([&] {
+        return AliasExpansionGraph(10, paddingPairs + 1, oddPadding);
+    }, "expanded-node-limit");
+    ReportBoundary("expanded alias walk 20,000 accepted; repeated-target expansion rejected before visit 20,001");
 
     ExpectBudgetError([] { return std::string("---\nroot: one\n---\nroot: two\n"); }, "multiple-documents");
+    ReportBoundary("second YAML document rejected at document-start event");
     ExpectBudgetError([] { return std::string("loop: &loop [*loop]\n"); }, "cyclic-alias");
-    ExpectBudgetError([] { return AliasExpansionBomb(); }, "expanded-node-limit");
+    ReportBoundary("cyclic alias rejected by active traversal path");
 
-    std::cout << "PASS resource bounds: file bytes, collection depth, steps, per-step/per-lesson buttons, aliases, event nodes, expanded visits, multiple documents, and cycles\n";
+    const auto aliasStart = std::chrono::steady_clock::now();
+    ExpectBudgetError([] { return AliasExpansionGraph(14, 0, false); }, "expanded-node-limit");
+    const auto aliasElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - aliasStart).count();
+    std::cout << "PASS adversarial alias expansion stopped at visit budget; input_bytes="
+              << AliasExpansionGraph(14, 0, false).size()
+              << " elapsed_ms=" << aliasElapsed << '\n';
+
+    ExpectParserError("root: [unterminated\n");
+    ReportBoundary("malformed YAML raised parser exception without continuing the walk");
+
+    std::cout << "PASS resource bounds suite: input cap, callback counters, schema counts, expanded alias walk, and parser rejection\n";
 }
 
 } // namespace

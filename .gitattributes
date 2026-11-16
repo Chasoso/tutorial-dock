@@ -1,3 +1,4 @@
 /.agents/skills/** text eol=lf
 /.specify/** text eol=lf
 experiments/yaml-cpp-patch-qualification/patches/*.patch text eol=lf
+experiments/yaml-cpp-patch-qualification/harness/fixtures/*.hex text eol=lf

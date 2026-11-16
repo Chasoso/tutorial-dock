@@ -125,7 +125,7 @@ jobs:
           path: vendor/yaml-cpp-patched
           persist-credentials: false
 
-      - name: Build and compare baseline and patched parser
+      - name: Build and run independent A-D qualification checks
         shell: pwsh
         run: |
           $buildRoot = Join-Path $env:RUNNER_TEMP "yaml-cpp-qualification-$env:GITHUB_RUN_ID"
@@ -134,11 +134,89 @@ jobs:
             -PatchedSource "$env:GITHUB_WORKSPACE/vendor/yaml-cpp-patched" `
             -BuildRoot "$buildRoot"
 
-      - name: Upload baseline and patched test logs
+      - name: Upload check A — baseline compatibility
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yaml-cpp-qualification-${{ github.run_id }}
-          path: ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/**/Testing/Temporary/LastTest.log
+          name: yaml-cpp-check-A-baseline-compatibility-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/A-baseline-compatibility.log
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/A-baseline-compatibility.status.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload check B — patched compatibility
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-check-B-patched-compatibility-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/B-patched-compatibility.log
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/B-patched-compatibility.status.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload check C — baseline resource bounds
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-check-C-baseline-resource-bounds-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/C-baseline-resource-bounds.log
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/C-baseline-resource-bounds.status.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload check D — patched resource bounds
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-check-D-patched-resource-bounds-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/D-patched-resource-bounds.log
+            ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/D-patched-resource-bounds.status.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload complete qualification summary and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-qualification-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/yaml-cpp-qualification-${{ github.run_id }}/reports/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  qualify-folded-keep-reference:
+    name: Folded keep reference (PyYAML)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the tested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned independent YAML implementation
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+
+      - name: Parse canonical folded-keep fixture and record bytes
+        shell: bash
+        run: |
+          python experiments/yaml-cpp-patch-qualification/scripts/compare-pyyaml-folded-keep.py \
+            "$RUNNER_TEMP/folded-keep-pyyaml.json"
+
+      - name: Upload independent parser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaml-cpp-folded-keep-reference-${{ github.run_id }}
+          path: ${{ runner.temp }}/folded-keep-pyyaml.json
           if-no-files-found: warn
           retention-days: 14
