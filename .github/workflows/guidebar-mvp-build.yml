@@ -1,0 +1,101 @@
+name: WP-GB-01 native guide bar build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/guidebar-mvp-build.yml'
+      - 'src/guidebar/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-model-tests:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Check out PR source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Build x64 product and run OS-independent tests
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: cmd
+        working-directory: src/guidebar
+        run: |
+          @echo off
+          setlocal
+          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          if not exist "%VSWHERE%" (
+            echo ERROR: vswhere.exe was not found.
+            exit /b 1
+          )
+          for /f "tokens=*" %%i in ('"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath') do set "VSINSTALLDIR=%%i"
+          if not defined VSINSTALLDIR (
+            echo ERROR: Visual Studio x64 C++ tools were not found.
+            exit /b 1
+          )
+          set "VCVARSALL=%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsall.bat"
+          if not exist "%VCVARSALL%" (
+            echo ERROR: vcvarsall.bat was not found.
+            exit /b 1
+          )
+          call "%VCVARSALL%" amd64
+          if errorlevel 1 exit /b 1
+          echo Product source SHA: %SOURCE_SHA%
+          for /f "tokens=*" %%i in ('"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find VC\Tools\MSVC\**\bin\Hostx64\x64\cl.exe') do set "CL_EXE=%%i"
+          if not defined CL_EXE (
+            echo ERROR: vswhere could not find the x64 MSVC compiler.
+            exit /b 1
+          )
+          for %%F in ("%CL_EXE%") do set "VCX64BIN=%%~dpF"
+          for %%F in ("%VCX64BIN%..\..\..") do set "VCTOOLSROOT=%%~fF"
+          if not exist "%CL_EXE%" (
+            echo ERROR: x64 MSVC compiler was not found at "%CL_EXE%".
+            exit /b 1
+          )
+          if not exist "%VCTOOLSROOT%\include\cstddef" (
+            echo ERROR: MSVC C++ headers were not found under "%VCTOOLSROOT%\include".
+            exit /b 1
+          )
+          if not exist "%VCX64BIN%link.exe" (
+            echo ERROR: x64 linker was not found beside the selected compiler.
+            exit /b 1
+          )
+          if not defined WindowsSdkDir (
+            echo ERROR: WindowsSdkDir was not set by vcvarsall.bat.
+            exit /b 1
+          )
+          if not defined WindowsSDKVersion (
+            echo ERROR: WindowsSDKVersion was not set by vcvarsall.bat.
+            exit /b 1
+          )
+          rem Use the selected VS instance's compiler and explicit matching headers/libraries.
+          set "PATH=%VCX64BIN%;%PATH%"
+          set "INCLUDE=%VCTOOLSROOT%\include;%WindowsSdkDir%Include\%WindowsSDKVersion%ucrt;%WindowsSdkDir%Include\%WindowsSDKVersion%shared;%WindowsSdkDir%Include\%WindowsSDKVersion%um;%WindowsSdkDir%Include\%WindowsSDKVersion%winrt;%INCLUDE%"
+          set "LIB=%VCTOOLSROOT%\lib\x64;%WindowsSdkDir%Lib\%WindowsSDKVersion%ucrt\x64;%WindowsSdkDir%Lib\%WindowsSDKVersion%um\x64;%LIB%"
+          where cl
+          if errorlevel 1 exit /b 1
+          echo Windows SDK: %WindowsSdkDir%Include\%WindowsSDKVersion%
+          if not exist build mkdir build
+          "%CL_EXE%" /nologo /std:c++17 /EHsc /W4 /utf-8 /DUNICODE /D_UNICODE /MT /Fo:build\ /Fe:build\guidebar.exe guidebar_win32.cpp guide_model.cpp /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib gdi32.lib comctl32.lib
+          if errorlevel 1 exit /b 1
+          "%CL_EXE%" /nologo /std:c++17 /EHsc /W4 /utf-8 /MT /Fo:build\ /Fe:build\guide_model_tests.exe guide_model_tests.cpp guide_model.cpp
+          if errorlevel 1 exit /b 1
+          build\guide_model_tests.exe
+          if errorlevel 1 exit /b 1
+          dumpbin /headers build\guidebar.exe | findstr /i /c:"machine (x64)"
+          if errorlevel 1 exit /b 1
+
+      - name: Upload compile-only product executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: guidebar-mvp-${{ github.event.pull_request.head.sha }}
+          path: src/guidebar/build/guidebar.exe
+          if-no-files-found: error
+          retention-days: 14
