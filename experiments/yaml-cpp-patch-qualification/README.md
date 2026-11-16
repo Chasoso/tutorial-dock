@@ -69,7 +69,7 @@ The script refuses to overwrite an existing build directory. It requires CMake, 
 
 ## Verification status
 
-Recorded qualification run: HEAD `d4bb8d63f052448047b17920f93c487eeb906dca` — [GitHub Actions run 43928059320](https://github.com/Chasoso/tutorial-dock/actions/runs/43928059320). The baseline compatibility finding originated on `dea5fc58fed62b5eb26ae92f04a7d4cc0e8cbf02` and was confirmed at this recorded HEAD.
+Recorded qualification run: HEAD `f423655326636a7385488d4de77ebe42bbf766df` — [GitHub Actions run 43930688246](https://github.com/Chasoso/tutorial-dock/actions/runs/43930688246). The baseline compatibility finding originated on `dea5fc58fed62b5eb26ae92f04a7d4cc0e8cbf02` and was confirmed at this recorded HEAD. This run also verifies the harness now reports the extra compatibility failure without claiming the other cases passed.
 
 - CVE-2026-75432 applicability for pinned 0.9.0: **NOT_AFFECTED by source provenance**. The three-revision ASan/UBSan matrix **PASS**ed: pinned 0.9.0 and the fix commit returned the expected parser exception; the post-introduction/pre-fix revision produced the expected sanitizer finding. This is specific to this CVE and does not establish that the parser has no other vulnerabilities.
 - Patch SHA-256 `CC023C13AF13A4F836922B87DA72BB51EA7A7C752AAC861A75F7A066E0EA3141`, hunk integrity, and application to the pinned source: **PASS** on Windows CI.
