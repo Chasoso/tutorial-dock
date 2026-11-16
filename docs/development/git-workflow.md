@@ -153,6 +153,21 @@ For a transient command or environment failure:
 
 Do not automatically retry authentication failures, permission failures, secret findings, destructive or irreversible operations, specification contradictions, or unapproved Level 2/3 decisions.
 
+### Permission denied and authorization requests
+
+`Permission denied` is a stop signal for the failed operation, not a reason to abandon otherwise authorized work without checking whether a narrow approval request can unblock it. It is also not permission to try the same operation through another shell, tool, path, identity, or API.
+
+When a command fails for lack of access:
+
+1. Stop that command. Record the exact command, target path/resource, error text, and the work item it blocks. Determine whether the operation is necessary for the authorized task and whether safe, independent work can continue.
+2. Inspect only the state already accessible to the current session to distinguish a likely sandbox boundary, OS access-control denial, resource ownership boundary, or unknown cause. Do not claim a cause that the available evidence cannot establish. Do not modify ACLs, ownership, sandbox/approval settings, or privilege level to investigate.
+3. If the operation is necessary and the execution environment exposes an authorization/escalation request mechanism, request approval for the specific operation with its reason and impact. Ask for the least privilege needed: read access for inspection, or narrowly scoped write access for the exact local Git/file operation. Do not request administrator access when a narrower permission is sufficient. A tool's automatic approval review or an available escalation API does not prove that a human was shown or approved the request; report what actually happened.
+4. Re-run the operation only after an affirmative authorization result, and only within the approved scope. This approval-triggered execution is a distinct, explicitly authorized operation, not an automatic retry. Approval does not override branch/worktree ownership, clean-state requirements, or other safety rules.
+5. If approval is denied, unavailable, or its outcome cannot be confirmed, do not try an alternate route around the same restriction. Mark the affected work `HUMAN_DECISION_REQUIRED`, report the operation, reason, impact, minimum permission that would unblock it, safe alternatives, and the condition for resuming. Continue only independent work that does not depend on the blocked access.
+6. If the task can be safely completed without the inaccessible resource or operation, do not request unnecessary access. Continue within scope and report the uninspected or unverified part as `NOT_CONFIRMED`/`NOT_RUN`, as appropriate.
+
+For another worktree, branch, or user-managed directory, access approval alone is insufficient: first establish its owner, uncommitted state, and whether the proposed operation is authorized. If those facts remain unclear, leave it untouched and stop the dependent operation. Never use ACL/ownership changes, administrator elevation, force-push, reset, stash, or GitHub API source edits as a workaround. A human instruction in a prompt does not itself change the sandbox or approval policy; any configuration change requires a separate human decision.
+
 ### Stop report
 
 When stopping, report:

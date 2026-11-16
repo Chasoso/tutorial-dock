@@ -50,4 +50,5 @@ These rules apply to work in this repository. Detailed policy is in:
 - Do not use `git reset --hard`, unapproved force-push, unconditional stash/rebase, `--no-verify`, or a competing worktree/branch without checking ownership and impact.
 - Run available quality gates before push and confirm the latest pushed SHA and PR CI state after push. A missing check is `NOT_CONFIGURED`, not `PASS`.
 - Do not silently retry authentication, permission, secret-scan, destructive, or specification-conflict failures. Follow the bounded retry and stop/report rules in the Git workflow.
+- When a required operation is blocked by `Permission denied`, do not silently abandon it: follow the least-privilege approval-request flow in `docs/development/git-workflow.md` when the execution environment provides one. Approval requests are distinct from automatic retries; never change ACLs, ownership, sandbox settings, or elevation yourself.
 - Track processes started by Codex and stop only those processes during cleanup; do not terminate another work's process.
