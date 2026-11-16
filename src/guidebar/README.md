@@ -79,10 +79,10 @@ Stop the run if registration, a size update, rollback, removal, the work-area me
 
 | Check | Result |
 |---|---|
-| Model, rollback, lifecycle-transition, and exit-guard tests | `PASS` in GitHub Actions run [#43804745242](https://github.com/Chasoso/tutorial-dock/actions/runs/43804745242) |
+| Model, rollback, lifecycle-transition, and exit-guard tests | `PASS` in GitHub Actions run [#43805290743](https://github.com/Chasoso/tutorial-dock/actions/runs/43805290743) |
 | Local MSVC/Windows SDK build and local model-test execution | `NOT_RUN`; no local C++ toolchain is available |
-| GitHub Actions x64 product build | `PASS` for PR HEAD `057d5755d37580c16dd8cf79065df2897e669e49`; Visual Studio 2022 17.14.45 and Windows SDK 10.0.26100.0 |
-| Compile-only product executable Artifact | [Download `guidebar-mvp-057d5755d37580c16dd8cf79065df2897e669e49`](https://github.com/Chasoso/tutorial-dock/actions/runs/43804745242/artifacts/14197604512) (14-day retention) |
+| GitHub Actions x64 product build | `PASS` for product sources at PR HEAD `7f129bc40be418ad4bb360a05138059ae7b80685`; Visual Studio 2022 17.14.45 and Windows SDK 10.0.26100.0 |
+| Compile-only product executable Artifact | [Download `guidebar-mvp-7f129bc40be418ad4bb360a05138059ae7b80685`](https://github.com/Chasoso/tutorial-dock/actions/runs/43805290743/artifacts/14198091695) (14-day retention) |
 | Product executable launch / AppBar / work-area changes | `MANUAL_PENDING` (not run by Codex) |
 | T008 Windows acceptance | `MANUAL_PENDING` |
 | Independent review | See PR #21's verification section for the verdict and exact reviewed HEAD. |
