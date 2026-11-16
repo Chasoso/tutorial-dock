@@ -66,14 +66,14 @@ These are feature-level limits proposed to bound parsing, model allocation, and 
 | Limit | Proposed maximum | Reason |
 |---|---:|---|
 | YAML file size | 1 MiB of bytes, checked before decoding/parsing | Bounds file I/O and parser input while leaving room for long instructional text and hundreds of steps. |
-| YAML collection nesting | 16 levels | The supported schema needs far fewer levels; this allows modest format headroom while rejecting pathological nesting. |
+| YAML collection nesting | 16 levels | Count the root mapping as level 1; each nested mapping or sequence adds one level. Scalars do not add a level. Alias targets are measured at the depth where each alias is expanded. The supported schema needs far fewer levels, leaving modest headroom while rejecting pathological nesting. |
 | Steps per lesson | 500 | Generous for a sequential tutorial while bounding navigation/model work. |
 | Buttons per step | 64 | Supports meaningful overflow cases while bounding each native menu. |
 | Buttons per lesson | 1,024 | Bounds total action metadata and UI resources across all steps. |
-| Alias references | 128 | Allows limited YAML reuse without unbounded alias-heavy input. |
-| Expanded/visited YAML nodes | 20,000 | Bounds validation traversal even when aliases reuse nodes. Cyclic aliases are rejected. |
+| Alias references | 128 | Count each alias occurrence in the parsed document, including repeated references to the same anchor. This permits limited YAML reuse without unbounded alias-heavy input. |
+| Expanded/visited YAML nodes | 20,000 | Count each node visit during the bounded validation walk. An alias occurrence counts as one visit, and every node reached through its target counts again on each expansion, even when the target is shared. Stop before visit 20,001. This bounds repeated alias traversal; cyclic aliases are rejected using the active traversal path. |
 
-The byte limit is applied before invoking the parser. The implementation must verify that the pinned parser path can enforce depth/alias/node limits without first performing unbounded expansion; if it cannot, stop dependency integration and review the parser approach instead of silently omitting a bound. These proposed values are not new product-wide R-* requirements.
+The byte limit is applied before invoking the parser. Resource counters run before schema conversion, so malformed or wrongly typed input is also bounded. For boundary tests, the depth counter accepts level 16 and rejects level 17; the alias counter accepts occurrence 128 and rejects 129; and the node counter accepts visit 20,000 and aborts before 20,001. Some scanner-boundary fixtures (especially depth and expanded-node cases) may be syntactically valid but invalid under the lesson schema; test the resource scanner independently for those cases, then verify schema rejection separately. Where the schema permits, test a complete valid lesson at the limit and one above it. The implementation must verify that the pinned parser path can enforce these limits without first performing unbounded expansion; if it cannot, stop dependency integration and review the parser approach instead of silently omitting a bound. These proposed values are not new product-wide R-* requirements.
 
 ## 4. Lesson and action behavior
 
