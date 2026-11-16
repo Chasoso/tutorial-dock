@@ -54,18 +54,19 @@ jobs:
             exit /b 1
           )
           for %%F in ("%CL_EXE%") do set "VCX64BIN=%%~dpF"
+          for %%F in ("%VCX64BIN%..\..\..") do set "VCTOOLSROOT=%%~fF"
           if not exist "%CL_EXE%" (
             echo ERROR: x64 MSVC compiler was not found at "%CL_EXE%".
+            exit /b 1
+          )
+          if not exist "%VCTOOLSROOT%\include\cstddef" (
+            echo ERROR: MSVC C++ headers were not found under "%VCTOOLSROOT%\include".
             exit /b 1
           )
           if not exist "%VCX64BIN%link.exe" (
             echo ERROR: x64 linker was not found beside the selected compiler.
             exit /b 1
           )
-          rem Use the selected VS instance's compiler and make its sibling linker discoverable.
-          set "PATH=%VCX64BIN%;%PATH%"
-          where cl
-          if errorlevel 1 exit /b 1
           if not defined WindowsSdkDir (
             echo ERROR: WindowsSdkDir was not set by vcvarsall.bat.
             exit /b 1
@@ -74,9 +75,15 @@ jobs:
             echo ERROR: WindowsSDKVersion was not set by vcvarsall.bat.
             exit /b 1
           )
+          rem Use the selected VS instance's compiler and explicit matching headers/libraries.
+          set "PATH=%VCX64BIN%;%PATH%"
+          set "INCLUDE=%VCTOOLSROOT%\include;%WindowsSdkDir%Include\%WindowsSDKVersion%ucrt;%WindowsSdkDir%Include\%WindowsSDKVersion%shared;%WindowsSdkDir%Include\%WindowsSDKVersion%um;%WindowsSdkDir%Include\%WindowsSDKVersion%winrt;%INCLUDE%"
+          set "LIB=%VCTOOLSROOT%\lib\x64;%WindowsSdkDir%Lib\%WindowsSDKVersion%ucrt\x64;%WindowsSdkDir%Lib\%WindowsSDKVersion%um\x64;%LIB%"
+          where cl
+          if errorlevel 1 exit /b 1
           echo Windows SDK: %WindowsSdkDir%Include\%WindowsSDKVersion%
           if not exist build mkdir build
-          "%CL_EXE%" /nologo /std:c++17 /EHsc /W4 /utf-8 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /MT /Fo:build\ /Fe:build\guidebar.exe guidebar_win32.cpp guide_model.cpp /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib gdi32.lib comctl32.lib
+          "%CL_EXE%" /nologo /std:c++17 /EHsc /W4 /utf-8 /DUNICODE /D_UNICODE /MT /Fo:build\ /Fe:build\guidebar.exe guidebar_win32.cpp guide_model.cpp /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib gdi32.lib comctl32.lib
           if errorlevel 1 exit /b 1
           "%CL_EXE%" /nologo /std:c++17 /EHsc /W4 /utf-8 /MT /Fo:build\ /Fe:build\guide_model_tests.exe guide_model_tests.cpp guide_model.cpp
           if errorlevel 1 exit /b 1
