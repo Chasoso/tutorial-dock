@@ -1,6 +1,6 @@
 # Tutorial Dock Guide Bar — First Vertical Slice Plan
 
-**Status:** Proposal — not an approved architecture or implementation authorization.
+**Status:** Proposal — human approval is recorded for the WP-GB-01 sequence and scoped C++/Win32 direction; this proposal becomes effective only on merge and does not authorize implementation.
 **Specification:** [spec.md](spec.md)
 **Related behavior:** [R-01–R-09](../../docs/requirements.md), [Windows AppBar AB-001–AB-008](../windows-appbar/spec.md)
 **Evidence:** [Native AppBar Phase 1 record](../../docs/spikes/windows-appbar-core/README.md), merged PR [#17](https://github.com/Chasoso/tutorial-dock/pull/17).
@@ -24,7 +24,7 @@ The recorded run supports these limited findings in the tested single-display Wi
 
 The run does **not** complete the native Spike's full Phase 1 gate: maximized Notepad/Tableau were not tested; there is no independent post-process work-area measurement or independently captured parent-shell exit code; the Windows build number and exact experiment source SHA are not stated in the result record. Therefore WP-NAB-01/Issue #16 is not declared complete, and its remaining criteria are not inferred PASS.
 
-The existing native Spike plan makes WPF/WinForms comparisons conditional on a full Phase 1 PASS. This product proposal takes a separate path: it proposes a small product vertical slice using the successful native AppBar baseline without waiting for those framework comparisons. It does not claim the old Phase 1 gate passed, does not start Phase 2, and does not change the native Spike plan. This sequencing change and the candidate UI stack require explicit human approval before Issue registration or implementation.
+The existing native Spike plan makes WPF/WinForms comparisons conditional on a full Phase 1 PASS. The human approved a separate product vertical-slice path that does not wait for those comparisons. This does not claim the old Phase 1 gate passed, start Phase 2, or change the native Spike plan. On 2026-11-16, the human also approved C++/Win32 native UI only for WP-GB-01, not for Tutorial Dock's overall product stack. Issue registration is deferred until PR #19 is merged; implementation and Windows runtime remain unauthorized until a later instruction names the Issue and execution order and separately authorizes runtime testing.
 
 ## Candidate technical direction
 
@@ -37,16 +37,17 @@ The existing native Spike plan makes WPF/WinForms comparisons conditional on a f
 - Do not carry over the high-volume diagnostic message queue or experiment JSONL logger as production infrastructure. Retain user-visible error/state reporting and only the minimal diagnostics justified for this slice.
 - Do not add fixed offsets, repeated correction, automatic re-registration loops, or a fallback that is represented as successful AppBar behavior.
 
-### Candidate UI for approval
+### WP-GB-01 approved technical direction (scope-limited)
 
-Preferred first implementation candidate: C++/Win32 as a single native GUI process, with the AppBar top-level window hosting native child controls for the left step content and right-side actions/navigation/settings/collapse. This keeps the registered window and displayed content on the same HWND path and avoids adding an unapproved runtime dependency.
+Use C++/Win32 for this Work Package as a single native GUI process, with the AppBar top-level window hosting native child controls for the left step content and right-side actions/navigation/settings/collapse. This keeps the registered window and displayed content on the same HWND path and avoids adding a runtime dependency for the first slice.
 
-This is a proposed Level 2 product-stack choice, not a final selection. WPF, WinForms, WebView2, or an Electron/native bridge may be revisited after the first vertical slice if native UI effort or product requirements justify it. No comparison experiment is required before this candidate can be considered.
+This is a Level 2 approval limited to WP-GB-01, not a final Tutorial Dock stack selection. WPF, WinForms, WebView2, or an Electron/native bridge may be reconsidered after the first vertical slice if evidence or product requirements justify it. No comparison experiment is a prerequisite to this slice.
 
 ### Startup, data, and interaction
 
 - Product launch creates and registers the empty bar on the primary display, as requested and consistent with R-01/R-04. This intentionally differs from the diagnostic PoC's explicit Register button.
 - Provide an explicit prototype “Load sample lesson” action; do not auto-load the fixture.
+- Keep lesson data, current-step state, and navigation rules in a small UI-independent in-memory model. Win32 controls render model state and dispatch user commands; they are not the canonical lesson state. Keep this separation concrete and testable without introducing a general UI-framework abstraction.
 - Keep the fixture in memory, with three or more steps and boundary-safe navigation. The sample demonstration action displays local placeholder feedback only; it does not implement R-05's image action.
 - The Settings menu exposes only sample loading, reservation status, and normal Exit. Do not present deferred YAML, reload, or display-selection operations as implemented.
 - Use the existing R-01 provisional height targets. A 34 px collapsed test value may be selected after human approval; do not record it as a finalized requirement.
@@ -64,30 +65,30 @@ This is a proposed Level 2 product-stack choice, not a final selection. WPF, Win
 
 | Topic | Existing native Spike sequence | Proposed product path | Risk / control |
 |---|---|---|---|
-| WPF/WinForms comparison | Proposed only after full Phase 1 PASS | Not a prerequisite to the first product slice | Native UI could prove costly; revisit with evidence, not by automatic framework switch. |
-| Phase 1 evidence | Full gate includes maximized Notepad, external post-exit work area, source/environment provenance, and desktop-state checks | Use only the successful 90 px reservation/display/removal evidence as a starting point; repeat missing checks in the product acceptance run | Does not mark Issue #16 complete; require explicit human acceptance of the incomplete baseline evidence. |
-| UI stack | Reserved for a later Level 2 decision | Candidate C++/Win32 controls in the registered AppBar window | Requires Level 2 approval before implementation; native layout/accessibility and future content cost remain. |
+| WPF/WinForms comparison | Existing Spike proposes it only after full Phase 1 PASS | Human approved not making it a prerequisite to this product slice | Native UI could prove costly; revisit with evidence, not by automatic framework switch. |
+| Phase 1 evidence | Full gate includes maximized Notepad, external post-exit work area, source/environment provenance, and desktop-state checks | Use only the successful 90 px reservation/display/removal evidence as a starting point; repeat missing checks in the product acceptance run | Does not mark Issue #16 complete; carry each missing check into product acceptance and never infer PASS. |
+| UI stack | Reserved for a later Level 2 decision in the native Spike sequence | C++/Win32 controls approved only for WP-GB-01 | Does not select the product-wide stack; native layout/accessibility and future content cost remain. |
 | Collapse/update | Not part of the native Phase 1 run | Included in this product slice | Update path is unverified; measure `rcWork`, preserve step, and stop on uncertain state. |
 | Recovery | Normal exit evidence exists in-process; external evidence is missing | Guarded normal exit is required; crash recovery stays deferred | Do not claim abnormal-exit recovery or release readiness. |
 | R-09 distribution | Outside Issue #16 | Deferred to a later Work Package | Compile-only success is not portable-exe acceptance. |
 
 ## Proposed one-Work-Package implementation
 
-**WP-GB-01 — Native AppBar guide-bar first vertical slice (candidate only)**
+**WP-GB-01 — Native AppBar guide-bar first vertical slice (approved scope; Issue registration deferred)**
 
 - **Source:** this specification; the in-scope portions of R-01, R-02, R-03, R-04, R-05, and R-07; related AppBar AB-001–AB-004 and AB-007–AB-008. R-06 image-viewer behavior, R-08 lesson-content validation, and R-09 distribution are deferred.
 - **Tasks:** `specs/guidebar-mvp/tasks.md`, T001–T008.
 - **Dependency:** merged PR #17 / the isolated Pure Win32 baseline. Issue #16 remains open and is not closed by this plan.
 - **Scope:** separate native product project; empty-at-start bar with AppBar reservation; in-memory sample fixture; step presentation/navigation; demo action and limited Settings; collapse/expand reservation update; guarded normal release; compile/static checks; one human-run Windows acceptance session.
-- **Not included:** YAML, real image action/viewer, display switching, WPF/WinForms comparison, R-09 packaging, abnormal-exit recovery, production stack approval.
+- **Not included:** YAML, real image action/viewer, display switching, WPF/WinForms comparison as a prerequisite, R-09 packaging, abnormal-exit recovery, and final product-wide stack selection.
 - **Acceptance:** GBM-SC-001–GBM-SC-007 in `spec.md`; automated model/failure-path checks and Windows evidence for work area, visible bar, collapse, Notepad/Tableau behavior, release, process exit, and external post-exit work area.
-- **Authorization:** human approval of the candidate Level 2 UI stack and Work Package is required before registering the Issue. A separate instruction naming the Issue and execution order is required before implementation. Human authorization is separately required for Windows AppBar runtime testing.
+- **Authorization:** human approval of the sequence and C++/Win32 direction is recorded for WP-GB-01 only. Do not register the Issue until PR #19 is merged. A later human instruction must name the registered Issue and execution order before implementation. Windows AppBar runtime testing also requires separate human authorization.
 
 ## Decision gates
 
-1. **Plan review:** confirm the requested sequencing change and residual Phase 1 evidence gaps. This document remains a proposal until its PR is merged.
-2. **Level 2 product direction:** approve or reject the C++/Win32 native-controls candidate. If not approved, stop before Issue registration and present the alternatives.
-3. **Work Package registration:** approve WP-GB-01 explicitly; Issue registration approval alone will not authorize implementation.
+1. **Plan review:** human approved the sequencing change and scoped direction on 2026-11-16. This document remains a proposal until PR #19 is merged; residual Phase 1 evidence gaps remain visible.
+2. **Level 2 product direction:** approved for WP-GB-01 only; this is not a product-wide stack selection.
+3. **Work Package registration:** wait until PR #19 is merged before registering WP-GB-01. Registration alone will not authorize implementation.
 4. **Implementation start:** specify the registered Issue and execution order.
 5. **Windows acceptance:** human-run baseline and feature tests; any unresolved registration/removal/work-area state stops the run.
 6. **Future decisions:** choose separately whether to run framework comparisons, image/YAML work, abnormal-recovery spike, multi-monitor, and R-09 packaging.
@@ -102,7 +103,7 @@ This is a proposed Level 2 product-stack choice, not a final selection. WPF, Win
 
 ## Unresolved
 
-- Human approval of a native Win32 UI stack for the first product slice.
+- Issue registration after PR #19 merge and a separate named-Issue implementation instruction.
 - Exact collapsed height and final bar appearance.
 - Safe user interaction if OS reservation state remains uncertain.
 - AppBar behavior on other Windows builds, taskbar layouts, displays, and DPI values.

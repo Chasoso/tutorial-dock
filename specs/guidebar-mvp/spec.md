@@ -1,6 +1,6 @@
 # Tutorial Dock Guide Bar — First Vertical Slice
 
-**Status:** Proposal — human review and implementation authorization required.
+**Status:** Proposal — the WP-GB-01 sequence and scoped C++/Win32 direction have human approval; effective behavior still requires PR merge, and implementation is not authorized.
 **Source requirements touched by this proposal:** R-01–R-05 and R-07. R-06, R-08, and R-09 remain deferred.
 **Related AppBar feature specification:** [Windows AppBar work-area reservation](../windows-appbar/spec.md), especially AB-001–AB-008.
 
@@ -134,7 +134,7 @@ Windows AppBar, work-area, maximized-window, visual, and post-exit checks requir
 
 ## 7. Open questions and decision boundaries
 
-- **HUMAN_DECISION_REQUIRED — product UI stack:** the first candidate is a C++/Win32 top-level AppBar window with native child controls. This reuses the successful HWND/protocol path but increases native UI development and maintenance. Approval is required before implementation. WPF/WinForms comparison is not a prerequisite to this first vertical slice, but remains an option if the native UI proves unsuitable.
+- **Human decision recorded 2026-11-16, limited to WP-GB-01:** C++/Win32 native controls in the AppBar window are approved for this first slice, and WPF/WinForms comparison is not a prerequisite. This does not choose Tutorial Dock's product-wide UI stack; other UI options may be reconsidered later. It does not register an Issue or authorize implementation or Windows execution.
 - Exact normal/collapsed heights and visual treatment remain provisional.
 - The UI and safe operator path when OS reservation state is uncertain require implementation review; fallback visibility alone cannot prove release.
 - Abnormal termination recovery remains unproven and outside this slice.

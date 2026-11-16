@@ -444,7 +444,7 @@ The user-provided session `session-20261116T065123-318-0.jsonl` was summarized i
 
 | Check | Recorded result | Evidence boundary |
 |---|---|---|
-| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` | PASS in the run: 1 / 1 / 1; accepted rect `(0,0)-(1920,90)`. | API success is separate from work-area and visual evidence. |
+| `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS` | PASS in the run: 1 / 3 / 3; accepted rect `(0,0)-(1920,90)`. | API success is separate from work-area and visual evidence. |
 | Windows work area | PASS in the run: top changed from 0 to 90 and remained 90 at the settled sample. | Single-display 1920x1080, 96-DPI setup. |
 | AppBar position and visibility | PASS at recorded samples: `GetWindowRect=(0,0)-(1920,90)`; user visually confirmed rendering in the reserved strip. | No DWM frame was collected. A later 1 px height difference followed the user's manual drag and is not treated as an unexplained defect. |
 | Explicit `ABM_REMOVE` and in-process release verification | PASS: return 1; `workAreaRestored=true`, `appBarHidden=true`, `operatorWindowUnchanged=true`. | In-process evidence only. |
