@@ -74,12 +74,71 @@ function Test-CacheSetting {
 function Get-ImportedDllNames {
     param([string[]]$DumpbinOutput)
     $names = @()
+    $dependencySectionFound = $false
     foreach ($line in $DumpbinOutput) {
+        if (-not $dependencySectionFound) {
+            if ($line -match '^\s*Image has the following dependencies:\s*$') {
+                $dependencySectionFound = $true
+            }
+            continue
+        }
+        if ($line -match '^\s*Summary\s*$') {
+            break
+        }
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
         if ($line -match '^\s*([A-Z0-9_.-]+\.DLL)\s*$') {
             $names += $Matches[1].ToUpperInvariant()
+            continue
         }
+        return [pscustomobject]@{ Valid = $false; Names = $names; Error = "unparsed dependency-section entry: $($line.Trim())" }
     }
-    return $names
+    if (-not $dependencySectionFound) {
+        return [pscustomobject]@{ Valid = $false; Names = $names; Error = 'dumpbin dependency-section header was not found' }
+    }
+    if ($names.Count -eq 0) {
+        return [pscustomobject]@{ Valid = $false; Names = $names; Error = 'dependency section contained no parsed DLL names' }
+    }
+    return [pscustomobject]@{ Valid = $true; Names = $names; Error = $null }
+}
+
+function Test-ImportedDllAllowlist {
+    param([object]$ParsedImports, [string[]]$AllowedDlls)
+    $names = @($ParsedImports.Names)
+    $unexpected = @($names | Where-Object { $_ -notin $AllowedDlls } | Sort-Object -Unique)
+    $missing = @($AllowedDlls | Where-Object { $_ -notin $names })
+    $valid = $ParsedImports.Valid -and $unexpected.Count -eq 0 -and $missing.Count -eq 0
+    return [pscustomobject]@{
+        Valid = $valid
+        Names = $names
+        Unexpected = $unexpected
+        Missing = $missing
+        Error = $ParsedImports.Error
+    }
+}
+
+function Test-ImportedDllParser {
+    $header = @('Dump of file harness.exe', 'File Type: EXECUTABLE IMAGE', '', 'Image has the following dependencies:')
+    $clean = Get-ImportedDllNames ($header + @('    KERNEL32.dll', '', '  Summary', ' .data'))
+    if (-not $clean.Valid -or ($clean.Names -join ',') -ne 'KERNEL32.DLL') { return $false }
+    if (-not (Test-ImportedDllAllowlist $clean @('KERNEL32.DLL')).Valid) { return $false }
+
+    $extra = Get-ImportedDllNames ($header + @('    KERNEL32.dll', '    USER32.dll', '', '  Summary'))
+    if (-not $extra.Valid -or (Test-ImportedDllAllowlist $extra @('KERNEL32.DLL')).Valid) { return $false }
+
+    $missing = Get-ImportedDllNames ($header + @('    USER32.dll', '', '  Summary'))
+    if (-not $missing.Valid -or (Test-ImportedDllAllowlist $missing @('KERNEL32.DLL')).Valid) { return $false }
+
+    $unparsed = Get-ImportedDllNames ($header + @('    KERNEL32.dll', '    unexpected dependency output'))
+    if ($unparsed.Valid -or (Test-ImportedDllAllowlist $unparsed @('KERNEL32.DLL')).Valid) { return $false }
+
+    $noHeader = Get-ImportedDllNames @('Dump of file harness.exe', '    KERNEL32.dll')
+    if ($noHeader.Valid -or (Test-ImportedDllAllowlist $noHeader @('KERNEL32.DLL')).Valid) { return $false }
+
+    $empty = Get-ImportedDllNames ($header + @('', '  Summary'))
+    if ($empty.Valid -or (Test-ImportedDllAllowlist $empty @('KERNEL32.DLL')).Valid) { return $false }
+    return $true
 }
 
 function Test-BuiltBinaryDependencies {
@@ -112,14 +171,16 @@ function Test-BuiltBinaryDependencies {
         $dependentsExit = $LASTEXITCODE
         $dependents | Add-Content -LiteralPath $logPath -Encoding utf8
         $isX64 = $headersExit -eq 0 -and [bool]($headers | Where-Object { $_ -match '8664 machine \(x64\)' })
-        $importedDlls = @(Get-ImportedDllNames $dependents)
         $allowedDlls = @('KERNEL32.DLL')
-        $unexpectedDlls = @($importedDlls | Where-Object { $_ -notin $allowedDlls } | Sort-Object -Unique)
-        $missingAllowedDlls = @($allowedDlls | Where-Object { $_ -notin $importedDlls })
+        $dependencyCheck = Test-ImportedDllAllowlist (Get-ImportedDllNames $dependents) $allowedDlls
+        $importedDlls = @($dependencyCheck.Names)
         "IMPORTED_DLLS=$($importedDlls -join ',')" | Add-Content -LiteralPath $logPath -Encoding utf8
-        if ($dependentsExit -ne 0 -or -not $isX64 -or $unexpectedDlls.Count -gt 0 -or $missingAllowedDlls.Count -gt 0) {
+        if ($dependencyCheck.Error) {
+            "DEPENDENCY_PARSE_ERROR=$($dependencyCheck.Error)" | Add-Content -LiteralPath $logPath -Encoding utf8
+        }
+        if ($dependentsExit -ne 0 -or -not $isX64 -or -not $dependencyCheck.Valid) {
             $allPassed = $false
-            "DEPENDENCY_RESULT=FAIL x64=$isX64 dumpbinExit=$dependentsExit unexpectedImports=$($unexpectedDlls -join ',') missingExpectedImports=$($missingAllowedDlls -join ',')" |
+            "DEPENDENCY_RESULT=FAIL x64=$isX64 dumpbinExit=$dependentsExit unexpectedImports=$($dependencyCheck.Unexpected -join ',') missingExpectedImports=$($dependencyCheck.Missing -join ',') parseError=$($dependencyCheck.Error)" |
                 Add-Content -LiteralPath $logPath -Encoding utf8
         } else {
             "DEPENDENCY_RESULT=PASS x64=$isX64; exact allowed DLL import set: KERNEL32.dll" |
@@ -234,6 +295,8 @@ if (Test-Path -LiteralPath $BuildRoot) {
 New-Item -ItemType Directory -Path $ReportRoot -Force | Out-Null
 
 Set-Check 'PATCH-integrity' 'NOT_RUN' 'validation pending'
+$importParserPassed = Test-ImportedDllParser
+Set-Check 'DLL-parser-self-test' $(if ($importParserPassed) { 'PASS' } else { 'FAIL' }) 'requires valid dependency sections, exact allowlist, and rejection of extra/unparsed/missing data'
 $patchSpecs = @(
     [ordered]@{ name = 'quoted-scalar'; file = $QuotedPatchFile; expectedSha = $ExpectedQuotedPatchSha256; changedPath = 'src/scantoken.cpp'; expectedNumstat = "1`t1`tsrc/scantoken.cpp" },
     [ordered]@{ name = 'folded-keep'; file = $FoldedPatchFile; expectedSha = $ExpectedFoldedPatchSha256; changedPath = 'src/scanscalar.cpp'; expectedNumstat = "3`t1`tsrc/scanscalar.cpp" }
@@ -332,7 +395,7 @@ if ($Checks['PATCH-integrity'].status -eq 'PASS') {
     if (-not $Checks.Contains('D-patched-resource-bounds')) { Set-Check 'D-patched-resource-bounds' 'NOT_RUN' 'patch did not pass integrity checks' }
 }
 
-$required = @('PATCH-integrity', 'BUILD-baseline', 'RUNTIME-baseline', 'A-baseline-compatibility', 'C-baseline-resource-bounds', 'BUILD-patched', 'RUNTIME-patched', 'B-patched-compatibility', 'D-patched-resource-bounds')
+$required = @('DLL-parser-self-test', 'PATCH-integrity', 'BUILD-baseline', 'RUNTIME-baseline', 'A-baseline-compatibility', 'C-baseline-resource-bounds', 'BUILD-patched', 'RUNTIME-patched', 'B-patched-compatibility', 'D-patched-resource-bounds')
 $overall = 'PASS'
 foreach ($name in $required) {
     if (-not $Checks.Contains($name) -or $Checks[$name].status -ne 'PASS') {
