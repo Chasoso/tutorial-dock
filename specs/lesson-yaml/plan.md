@@ -91,7 +91,7 @@ These decisions are now the proposed WP-GB-02 design; they do not authorize Issu
 - **Dependency:** merged WP-GB-01 implementation in PR #21 / Issue #20. Issue #20 remains open if still open; its incomplete evidence is carried forward as-is.
 - **Scope:** local Open/Reload, pinned YAML parser integration and validation, bounded resource handling, contained relative image metadata/status (no viewer), transactional state, full-text detail popup, new “その他” action overflow with mouse-accessible disabled reasons, tests, Windows compile and manual UI verification.
 - **Acceptance:** LYM-SC-001–LYM-SC-008; every criterion recorded separately as PASS/FAIL/NOT_RUN/MANUAL_PENDING.
-- **Stop conditions:** parser pin/license/security/conformance or safe resource-bound enforcement fails; path cannot be safely canonicalized; any fatal parse/validation error must preserve old state; unexpected AppBar state change/regression; any API/file-system error with uncertain state; no forced termination or OS recovery action.
+- **Stop conditions:** parser pin/license/security/conformance or safe resource-bound enforcement fails; safe path validation cannot be reliably implemented or verified; any fatal parse/validation error must preserve old state; unexpected AppBar state change/regression; any API/file-system error with uncertain state; no forced termination or OS recovery action. An individual image reference that cannot be safely resolved is non-fatal: warn and disable only that action.
 - **Status:** proposal only. No Issue has been registered and this plan does not authorize implementation.
 
 ## Completion boundary

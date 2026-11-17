@@ -1,0 +1,10 @@
+diff --git a/src/scantoken.cpp b/src/scantoken.cpp
+--- a/src/scantoken.cpp
++++ b/src/scantoken.cpp
+@@ -349,5 +349,5 @@ void Scanner::ScanQuotedScalar() {
+   params.fold = FOLD_FLOW;
+   params.eatLeadingWhitespace = true;
+   params.trimTrailingSpaces = false;
+-  params.chomp = CLIP;
++  params.chomp = KEEP;
+   params.onDocIndicator = THROW;
