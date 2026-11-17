@@ -75,6 +75,7 @@ function Get-ImportedDllNames {
     param([string[]]$DumpbinOutput)
     $names = @()
     $dependencySectionFound = $false
+    $summaryTerminatorFound = $false
     foreach ($line in $DumpbinOutput) {
         if (-not $dependencySectionFound) {
             if ($line -match '^\s*Image has the following dependencies:\s*$') {
@@ -83,6 +84,7 @@ function Get-ImportedDllNames {
             continue
         }
         if ($line -match '^\s*Summary\s*$') {
+            $summaryTerminatorFound = $true
             break
         }
         if ([string]::IsNullOrWhiteSpace($line)) {
@@ -96,6 +98,9 @@ function Get-ImportedDllNames {
     }
     if (-not $dependencySectionFound) {
         return [pscustomobject]@{ Valid = $false; Names = $names; Error = 'dumpbin dependency-section header was not found' }
+    }
+    if (-not $summaryTerminatorFound) {
+        return [pscustomobject]@{ Valid = $false; Names = $names; Error = 'dumpbin dependency-section Summary terminator was not found' }
     }
     if ($names.Count -eq 0) {
         return [pscustomobject]@{ Valid = $false; Names = $names; Error = 'dependency section contained no parsed DLL names' }
@@ -132,6 +137,9 @@ function Test-ImportedDllParser {
 
     $unparsed = Get-ImportedDllNames ($header + @('    KERNEL32.dll', '    unexpected dependency output'))
     if ($unparsed.Valid -or (Test-ImportedDllAllowlist $unparsed @('KERNEL32.DLL')).Valid) { return $false }
+
+    $noSummary = Get-ImportedDllNames ($header + @('    KERNEL32.dll'))
+    if ($noSummary.Valid -or (Test-ImportedDllAllowlist $noSummary @('KERNEL32.DLL')).Valid) { return $false }
 
     $noHeader = Get-ImportedDllNames @('Dump of file harness.exe', '    KERNEL32.dll')
     if ($noHeader.Valid -or (Test-ImportedDllAllowlist $noHeader @('KERNEL32.DLL')).Valid) { return $false }
@@ -296,7 +304,7 @@ New-Item -ItemType Directory -Path $ReportRoot -Force | Out-Null
 
 Set-Check 'PATCH-integrity' 'NOT_RUN' 'validation pending'
 $importParserPassed = Test-ImportedDllParser
-Set-Check 'DLL-parser-self-test' $(if ($importParserPassed) { 'PASS' } else { 'FAIL' }) 'requires valid dependency sections, exact allowlist, and rejection of extra/unparsed/missing data'
+Set-Check 'DLL-parser-self-test' $(if ($importParserPassed) { 'PASS' } else { 'FAIL' }) 'requires a complete Summary-terminated dependency section, exact allowlist, and rejection of extra/unparsed/missing data'
 $patchSpecs = @(
     [ordered]@{ name = 'quoted-scalar'; file = $QuotedPatchFile; expectedSha = $ExpectedQuotedPatchSha256; changedPath = 'src/scantoken.cpp'; expectedNumstat = "1`t1`tsrc/scantoken.cpp" },
     [ordered]@{ name = 'folded-keep'; file = $FoldedPatchFile; expectedSha = $ExpectedFoldedPatchSha256; changedPath = 'src/scanscalar.cpp'; expectedNumstat = "3`t1`tsrc/scanscalar.cpp" }
